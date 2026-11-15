@@ -118,6 +118,11 @@ private:
   // Every angle is clamped by theJointLimits in update(), so an over-rotation can
   // never reach the hardware; the phase state machine is untouched, so a fall or a
   // get-up still wins over this overlay.
+  // MDFZ: one-shot split self-test at the start of a run (see update()). It runs once,
+  // for 500 ms, so the joint directions can be checked from the replay.
+  bool splitSelfTestDone = false;
+  unsigned splitSelfTestStart = 0;
+
   unsigned splitBlockStart = 0;
   JointRequest splitBlockFrom;
   bool splitBlockLeftOut = false;

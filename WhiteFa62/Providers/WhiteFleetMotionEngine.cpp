@@ -9,6 +9,7 @@
 
 #include "WhiteFleetMotionEngine.h"
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 #include "WhiteFleetOpponentGoalKickGuard.h"
 #include "Debugging/Annotation.h"
@@ -303,21 +304,51 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
     motionInfo.speed = Pose2f(0_deg, 0.f, 0.f);
 
   // Copy the new joint request into the final one (in order to convert ignore, off and useDefault).
-  // MDFZ: split block. Overlay the leg joints for a few frames only; the normal
-  // phase keeps running underneath, so nothing in the state machine changes.
-  if(splitBlockStart == 0 && shouldSplitBlock(motionRequest))
+  // MDFZ: one-shot split self-test. Runs the first time this run reaches PLAYING, holds
+  // the split for 500 ms and then hands the legs back, so the replay shows whether the
+  // leg really goes outwards. It has priority over the ball-triggered block.
+  if(!splitSelfTestDone)
   {
-    splitBlockStart = theFrameInfo.time;
-    splitBlockFrom = lastRequest;
-    splitBlockLeftOut = motionRequest.ballEstimate.position.y() > 0.f;
+    if(splitSelfTestStart == 0 && theGameState.isPlaying())
+    {
+      splitSelfTestStart = theFrameInfo.time;
+      splitBlockFrom = lastRequest;
+      splitBlockLeftOut = true;
+      std::printf("MDFZ_SPLIT_TEST self=%d event=start at=%u\n", theGameState.playerNumber, splitSelfTestStart);
+      std::fflush(stdout);
+    }
   }
-  if(splitBlockStart != 0)
+
+  if(splitSelfTestStart != 0 && !splitSelfTestDone)
   {
-    const unsigned splitElapsed = theFrameInfo.getTimeSince(splitBlockStart);
-    if(splitElapsed > 320u || theFallDownState.state != FallDownState::upright)
-      splitBlockStart = 0;
+    const unsigned testElapsed = theFrameInfo.getTimeSince(splitSelfTestStart);
+    if(testElapsed >= 500u)
+    {
+      splitSelfTestDone = true;
+      std::printf("MDFZ_SPLIT_TEST self=%d event=done held=%u\n", theGameState.playerNumber, testElapsed);
+      std::fflush(stdout);
+    }
     else
-      applySplitBlock(newJoints, splitElapsed);
+      applySplitBlock(newJoints, testElapsed);
+  }
+  else
+  {
+    // MDFZ: split block. Overlay the leg joints for a few frames only; the normal
+    // phase keeps running underneath, so nothing in the state machine changes.
+    if(splitBlockStart == 0 && shouldSplitBlock(motionRequest))
+    {
+      splitBlockStart = theFrameInfo.time;
+      splitBlockFrom = lastRequest;
+      splitBlockLeftOut = motionRequest.ballEstimate.position.y() > 0.f;
+    }
+    if(splitBlockStart != 0)
+    {
+      const unsigned splitElapsed = theFrameInfo.getTimeSince(splitBlockStart);
+      if(splitElapsed > 320u || theFallDownState.state != FallDownState::upright)
+        splitBlockStart = 0;
+      else
+        applySplitBlock(newJoints, splitElapsed);
+    }
   }
 
   MotionUtilities::copy(newJoints, jointRequest, static_cast<Joints::Joint>(0),
