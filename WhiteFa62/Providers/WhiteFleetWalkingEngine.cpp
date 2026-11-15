@@ -14,6 +14,8 @@
 #include "Tools/Motion/KickLengthConverter.h"
 #include "WhiteFleetK1HotChase.h"
 #include <filesystem>
+#include <algorithm>
+#include <cmath>
 
 MAKE_MODULE(WhiteFleetWalkingEngine);
 
@@ -50,8 +52,25 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
 
   resetHistoryData();
 
+  // ===== MDFZ 动态速度档位 =====
+  // 记录未放大的基准参数, 之后每帧按档位从基准重新派生:
+  //   巡航档(默认) 约 2.3 m/s, 冲刺档(满足条件时) 约 3.0 m/s.
+  // 两档之间按每帧 0.10 平滑过渡, 不会一步跳档.
+  baseConfiguredParameters = configuredParameters;
+  baseCommonSpeedParameters = commonSpeedParameters;
+  baseFrequencyParametersWalk = frequencyParametersWalk;
+  baseStepSizeParameters = stepSizeParameters;
+  baseActionClipRange = walkNeuronalNetworkParameters.actionClipRange;
+  applyProfile(0.f);
+
   const WhiteFleetDummyPhase dummy(MotionPhase::playDead);
   WhiteFleetWalkPhase phase(*this, Pose2f(), dummy);
+}
+
+void WhiteFleetWalkingEngine::rebuildTranslationPolygons()
+{
+  translationPolygon.clear();
+  translationPolygonMaxPossible.clear();
 
   const auto& fastSpeed = configuredParameters.fastWalkSpeed;
   const float maxBackwardAtMaxSide = std::min(fastSpeed.maxSpeed.translation.x(), std::min(fastSpeed.maxSpeedBackwards, configuredParameters.maxForwardAtMaxSide));
@@ -78,22 +97,135 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
   translationPolygonMaxPossible.emplace_back(Vector2f(-maxSpeedMP.maxSpeedBackwards, -maxSideAtMaxForwardMP));
   translationPolygonMaxPossible.emplace_back(Vector2f(-maxSpeedMP.maxSpeedBackwards, maxSideAtMaxForwardMP));
   translationPolygonMaxPossible.emplace_back(Vector2f(-maxBackwardAtMaxSideMP, maxSpeedMP.maxSpeed.translation.y()));
+}
 
-  configuredParameters.normalWalkSpeed.maxSpeed.translation.x() = std::min(fastSpeed.maxSpeed.translation.x() * 0.99f, configuredParameters.normalWalkSpeed.maxSpeed.translation.x());
-  configuredParameters.normalWalkSpeed.maxSpeed.translation.y() = std::min(fastSpeed.maxSpeed.translation.y() * 0.99f, configuredParameters.normalWalkSpeed.maxSpeed.translation.y());
-  configuredParameters.normalWalkSpeed.maxSpeed.rotation = std::min(fastSpeed.maxSpeed.rotation * 0.99f, static_cast<float>(configuredParameters.normalWalkSpeed.maxSpeed.rotation));
+void WhiteFleetWalkingEngine::applyProfile(const float blend)
+{
+  // blend: 0 = 巡航档 2.3 m/s, 1 = 冲刺档 3.0 m/s
+  const float s = 1.16f + (1.34f - 1.16f) * blend;   // 步幅与速度上限
+  const float a = 1.35f + (1.60f - 1.35f) * blend;   // 每步加减速
+  const float f = 1.08f + (1.18f - 1.08f) * blend;   // 步频
+  const float t = 1.10f + (1.25f - 1.10f) * blend;   // 转弯降速曲线
+  const float ac = 1.00f + (1.15f - 1.00f) * blend;  // 关节动作 clip
+  const float fc = 1.00f + (1.15f - 1.00f) * blend;  // 频率偏移 clip
+  const float sy = 1.20f + (1.45f - 1.20f) * blend;  // 侧向额外增益: 横移挡球不再慢一半
 
-  configuredParameters.slowWalkSpeed.maxSpeed.translation.x() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() * 0.99f, configuredParameters.slowWalkSpeed.maxSpeed.translation.x());
-  configuredParameters.slowWalkSpeed.maxSpeed.translation.y() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() * 0.99f, configuredParameters.slowWalkSpeed.maxSpeed.translation.y());
-  configuredParameters.slowWalkSpeed.maxSpeed.rotation = std::min(configuredParameters.normalWalkSpeed.maxSpeed.rotation * 0.99f, static_cast<float>(configuredParameters.slowWalkSpeed.maxSpeed.rotation));
+  const WhiteFleetConfiguredParameters& b = baseConfiguredParameters;
+  configuredParameters.fastWalkSpeed.maxSpeed.translation.x() = b.fastWalkSpeed.maxSpeed.translation.x() * s;
+  configuredParameters.fastWalkSpeed.maxSpeed.translation.y() = b.fastWalkSpeed.maxSpeed.translation.y() * s * sy;
+  configuredParameters.fastWalkSpeed.maxSpeed.rotation = Angle(static_cast<float>(b.fastWalkSpeed.maxSpeed.rotation) * s);
+  configuredParameters.fastWalkSpeed.maxSpeedBackwards = b.fastWalkSpeed.maxSpeedBackwards * s;
+  configuredParameters.maxPossibleSpeed.maxSpeed.translation.x() = b.maxPossibleSpeed.maxSpeed.translation.x() * s;
+  configuredParameters.maxPossibleSpeed.maxSpeed.translation.y() = b.maxPossibleSpeed.maxSpeed.translation.y() * s * sy;
+  configuredParameters.maxPossibleSpeed.maxSpeed.rotation = Angle(static_cast<float>(b.maxPossibleSpeed.maxSpeed.rotation) * s);
+  configuredParameters.maxPossibleSpeed.maxSpeedBackwards = b.maxPossibleSpeed.maxSpeedBackwards * s;
+  configuredParameters.maxSideAtMaxForward = b.maxSideAtMaxForward * s * sy;
+  configuredParameters.maxForwardAtMaxSide = b.maxForwardAtMaxSide * s * sy;
+
+  // normal 档贴满 fast, slow 档保持配置原值(带球/贴球/精确对准仍稳)
+  configuredParameters.normalWalkSpeed.maxSpeed.translation.x() = configuredParameters.fastWalkSpeed.maxSpeed.translation.x() * 0.99f;
+  configuredParameters.normalWalkSpeed.maxSpeed.translation.y() = configuredParameters.fastWalkSpeed.maxSpeed.translation.y() * 0.99f;
+  configuredParameters.normalWalkSpeed.maxSpeed.rotation = Angle(static_cast<float>(configuredParameters.fastWalkSpeed.maxSpeed.rotation) * 0.99f);
+  configuredParameters.slowWalkSpeed.maxSpeed.translation.x() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() * 0.99f, b.slowWalkSpeed.maxSpeed.translation.x());
+  configuredParameters.slowWalkSpeed.maxSpeed.translation.y() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() * 0.99f, b.slowWalkSpeed.maxSpeed.translation.y());
+  configuredParameters.slowWalkSpeed.maxSpeed.rotation = Angle(std::min(static_cast<float>(configuredParameters.normalWalkSpeed.maxSpeed.rotation) * 0.99f, static_cast<float>(b.slowWalkSpeed.maxSpeed.rotation)));
+
+  rebuildTranslationPolygons();
+
+  commonSpeedParameters = baseCommonSpeedParameters;
+  commonSpeedParameters.maxAcceleration *= a;
+  commonSpeedParameters.maxDeceleration *= a;
+  // 侧向单独再加 1.5 倍: 横移起步和收步都不拖
+  commonSpeedParameters.maxAcceleration.y() *= 1.5f;
+  commonSpeedParameters.maxDeceleration.y() *= 1.5f;
+  commonSpeedParameters.xTargetScaling.walkSpeed.min *= s;
+  commonSpeedParameters.xTargetScaling.walkSpeed.max = std::max(commonSpeedParameters.xTargetScaling.walkSpeed.max * s, configuredParameters.fastWalkSpeed.maxSpeed.translation.x());
+  commonSpeedParameters.yTargetScaling.walkSpeed.min *= s * sy;
+  commonSpeedParameters.yTargetScaling.walkSpeed.max = std::max(baseCommonSpeedParameters.yTargetScaling.walkSpeed.max * s * sy, configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
+
+  stepSizeParameters = baseStepSizeParameters;
+  stepSizeParameters.reduceTranslationFromRotationBaseOffset *= Angle(t);
+  stepSizeParameters.noTranslationFromRotationThreshold *= Angle(t);
+  stepSizeParameters.reduceTranslationFromRotationBaseFastOffset *= Angle(t);
+  stepSizeParameters.noTranslationFromRotationFastThreshold *= Angle(t);
+
+  frequencyParametersWalk.base = baseFrequencyParametersWalk.base * f;
+  frequencyParametersWalk.clipRange.min = baseFrequencyParametersWalk.clipRange.min * fc;
+  frequencyParametersWalk.clipRange.max = baseFrequencyParametersWalk.clipRange.max * fc;
+
+  walkNeuronalNetworkParameters.actionClipRange.min = baseActionClipRange.min * ac;
+  walkNeuronalNetworkParameters.actionClipRange.max = baseActionClipRange.max * ac;
 
   ASSERT(configuredParameters.slowWalkSpeed.maxSpeed.translation.x() < configuredParameters.normalWalkSpeed.maxSpeed.translation.x());
   ASSERT(configuredParameters.slowWalkSpeed.maxSpeed.translation.y() < configuredParameters.normalWalkSpeed.maxSpeed.translation.y());
   ASSERT(configuredParameters.slowWalkSpeed.maxSpeed.rotation < configuredParameters.normalWalkSpeed.maxSpeed.rotation);
+  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() < configuredParameters.fastWalkSpeed.maxSpeed.translation.x());
+  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() < configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
+  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.rotation < configuredParameters.fastWalkSpeed.maxSpeed.rotation);
+}
 
-  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() < fastSpeed.maxSpeed.translation.x());
-  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() < fastSpeed.maxSpeed.translation.y());
-  ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.rotation < fastSpeed.maxSpeed.rotation);
+bool WhiteFleetWalkingEngine::decideSprint() const
+{
+  const MotionRequest& r = theMotionRequest;
+  if(!r.isWalking() || theGameState.stopped || !theGameState.isPlaying() || theGameState.isGoalkeeper())
+    return false;
+
+  const float ballDist = r.ballEstimate.position.norm();
+  const bool ballKnown = r.ballTimeWhenLastSeen != 0 && theFrameInfo.getTimeSince(r.ballTimeWhenLastSeen) < 500;
+  const bool seesBall = ballKnown && std::isfinite(ballDist) && ballDist < 7000.f;
+  const bool chasing = r.shouldInterceptBall || r.shouldWalkOutOfBallLine;
+  const bool dribbling = r.motion == MotionRequest::dribble;
+  const bool approaching = r.motion == MotionRequest::walkToBallAndKick;
+  const bool explicitRun = r.fixedRunDriveSpeed > 0.f;
+  const bool longWalk = r.motion == MotionRequest::walkToPose && r.walkTarget.translation.norm() > 1200.f;
+  const bool contact = r.obstacleAvoidance.avoidance.squaredNorm() > 0.04f || !r.obstacleAvoidance.path.empty();
+
+  const float vx = std::abs(r.walkSpeed.translation.x());
+  const float vy = std::abs(r.walkSpeed.translation.y());
+  const float vn = std::sqrt(vx * vx + vy * vy);
+  const bool forward = vn > 0.25f && vx > 0.60f * vn;
+
+  // 必须先降档的情形: 贴近球要准, 刚起脚要稳, 球在身后要先转身, 快到位要停
+  if(approaching && seesBall && ballDist < 700.f)
+    return false;
+  // 带球时球就在脚下, 不能因为球近就降档, 否则带球永远只有巡航档
+  if(seesBall && r.ballEstimate.position.x() < -250.f)
+    return false;
+  if(r.postKickPursuitActive && theFrameInfo.getTimeSince(r.postKickPursuitTimestamp) < 350)
+    return false;
+  if(brakeSpeedRatio() < 0.30f)
+    return false;
+  // 高精度段一律回巡航档: 目标点/球在近处时, 侧向大步会让落脚点变粗,
+  // 容易一步跨过 100mm 的停止阈值, 表现为"到了但没对准"
+  if(r.motion == MotionRequest::walkToPose && r.walkTarget.translation.norm() < 700.f)
+    return false;
+  if(chasing && ballKnown && ballDist < 1000.f)
+    return false;
+  if(!ballKnown && !explicitRun && !longWalk)
+    return false;
+
+  return (seesBall && forward) || (chasing && forward) || dribbling || approaching || explicitRun || longWalk || contact;
+}
+
+float WhiteFleetWalkingEngine::brakeSpeedRatio() const
+{
+  const MotionRequest& r = theMotionRequest;
+  float remaining = -1.f;
+  if(r.motion == MotionRequest::walkToPose)
+    remaining = r.walkTarget.translation.norm();
+  else if(r.motion == MotionRequest::walkToBallAndKick)
+    remaining = r.ballEstimate.position.norm() - 320.f;
+  // dribble 的目标就是脚下的球, 不做距离刹车, 否则带球速度被压到一半
+  if(remaining < 0.f || !std::isfinite(remaining))
+    return 1.f;
+
+  const float v = std::max(1.f, configuredParameters.fastWalkSpeed.maxSpeed.translation.norm());
+  constexpr float brakeDeceleration = 3200.f; // mm/s^2 等效制动减速度, 越大刹得越早
+  const float usable = remaining - 250.f;
+  if(usable <= 0.f)
+    return 0.45f;
+  const float vAllowed = std::sqrt(2.f * brakeDeceleration * usable);
+  return std::clamp(vAllowed / v, 0.45f, 1.f);
 }
 
 void WhiteFleetWalkingEngine::resetHistoryData()
@@ -205,6 +337,32 @@ void WhiteFleetWalkingEngine::update(StandGenerator& standGenerator)
 
 void WhiteFleetWalkingEngine::update(WalkingEngineOutput& walkingEngineOutput)
 {
+  // MDFZ 动态档位: 满足冲刺条件才用 3 m/s, 否则 2.3 m/s. 进 4 帧确认, 退 3 帧确认.
+  const bool wantSprint = decideSprint();
+  if(wantSprint)
+  {
+    sprintRelease = 0;
+    if(sprintHold < 1000) ++sprintHold;
+  }
+  else
+  {
+    sprintHold = 0;
+    if(sprintRelease < 1000) ++sprintRelease;
+  }
+  if(sprintHold >= 4)
+    sprintTarget = 1.f;
+  else if(sprintRelease >= 3)
+    sprintTarget = 0.f;
+  if(sprintBlend < sprintTarget)
+    sprintBlend = std::min(sprintTarget, sprintBlend + 0.10f);
+  else if(sprintBlend > sprintTarget)
+    sprintBlend = std::max(sprintTarget, sprintBlend - 0.10f);
+  if(lastAppliedBlend < 0.f || std::abs(sprintBlend - lastAppliedBlend) > 1e-4f)
+  {
+    applyProfile(sprintBlend);
+    lastAppliedBlend = sprintBlend;
+  }
+
   walkingEngineOutput.maxSpeed = configuredParameters.fastWalkSpeed.maxSpeed;
   walkingEngineOutput.kickVelocityRange = ballNetworkParameters.kickVelocityRange;
   walkingEngineOutput.maxSpeedBackwards = configuredParameters.fastWalkSpeed.maxSpeedBackwards;
@@ -464,10 +622,36 @@ void WhiteFleetWalkingEngine::update(WalkGenerator& walkGenerator)
     backRight.y() = std::min(backRight.y(), -.01f);
     frontLeft.y() = std::max(frontLeft.y(), .01f);
 
+    // MDFZ 拦截并腿: 球快到脚边时把这一步的侧向幅度收窄, 两脚间距压到
+    // 100mm 左右(脚宽约 50mm, 空隙小于球径), 球不会从两脚中间穿过去.
+    if(theMotionRequest.shouldInterceptBall)
+    {
+      const float ballDist = theMotionRequest.ballEstimate.position.norm();
+      if(ballDist < 420.f && theMotionRequest.ballTimeWhenLastSeen != 0
+         && theFrameInfo.getTimeSince(theMotionRequest.ballTimeWhenLastSeen) < 300)
+      {
+        frontLeft.y() = std::min(frontLeft.y(), 55.f);
+        backRight.y() = std::max(backRight.y(), -55.f);
+      }
+    }
+
+    // MDFZ 预测刹车: 按剩余距离限制步长, 避免 3 m/s 冲过球或冲过站位点
+    const float brake = brakeSpeedRatio();
+    if(brake < 0.999f)
+    {
+      frontLeft.x() = std::max(frontLeft.x() * brake, .01f);
+      backRight.x() = std::min(backRight.x() * brake, -.01f);
+      frontLeft.y() = std::max(frontLeft.y() * brake, .01f);
+      backRight.y() = std::min(backRight.y() * brake, -.01f);
+    }
+
     Vector2f frontLeftNoCenter = frontLeft;
     Vector2f backRightNoCenter = backRight;
 
-    const float maxSideRatio = Rangef::ZeroOneRange().limit(std::max(0.f, std::abs(theVelocityEstimation.highestLastQuarterSecond.translation.x()) - 500.f) / 1500.f);
+    // MDFZ: 原来前向超过 500 mm/s 就开始压侧向, 2000 mm/s 时压到 maxSideAtMaxForward.
+    // 直跑转横移时这个 250ms 历史速度还没掉下去, 于是横移一开始就被压死.
+    // 阈值抬到 1200/2600, 只有真正全速前冲时才收侧向.
+    const float maxSideRatio = Rangef::ZeroOneRange().limit(std::max(0.f, std::abs(theVelocityEstimation.highestLastQuarterSecond.translation.x()) - 1200.f) / 2600.f);
     backRight.y() = std::max(backRight.y(), mapToRange(maxSideRatio, 0.f, 1.f, -configuredParameters.maxPossibleSpeed.maxSpeed.translation.y(), -configuredParameters.maxSideAtMaxForward));
     frontLeft.y() = std::min(frontLeft.y(), mapToRange(maxSideRatio, 0.f, 1.f, configuredParameters.maxPossibleSpeed.maxSpeed.translation.y(), configuredParameters.maxSideAtMaxForward));
 

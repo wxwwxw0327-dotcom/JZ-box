@@ -81,16 +81,17 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
   {
     static const char* const defaults[] =
     {
-      "ball shoot if oppGoalDist<4.5 oppBallDist>0.8", // in front of the opponent box with space: shoot
+      "ball shoot if oppGoalDist<3.5 oppBallDist>0.6",  // point-blank in a crowded box: shoot
+      "ball shoot if oppGoalDist<5.5 oppBallDist>0.8",  // in front of the opponent box with space: shoot
       "ball clear if ownGoalDist<3.5 oppBallDist<1.5", // pressed in the own third: strong clear upfield
       "ball clear if scoreDiff>0 ownGoalDist<3.5",     // leading: no risks in the own third
       "ball pass if oppBallDist<1.2",                  // marked closely: pass to the front-most teammate
       "ball dribble if scoreDiff<0 oppBallDist>1.2",   // behind: keep advancing under moderate pressure
       "ball dribble if oppBallDist>1.8",               // free field: carry the ball forward
-      "support guard if ballX<-1.5",                   // ball deep in the own half: cover goal-side
+      "support guard if ballX<-3",                     // ball deep in the own half: cover goal-side
       "support follow 0.8 if scoreDiff<0",             // behind: hug the play and push up
       "support mark if scoreDiff>0",                   // leading: mark the most dangerous opponent
-      "support follow 2 if absBallY>1.5",              // ball on the wing: support behind on the wing line
+      "support follow 2 if absBallY>2.5",              // ball on the wing: support behind on the wing line
       "support follow 1 if ballX>0.5",                 // ball in the opponent half: push up behind the ball
     };
     for(const char* const rule : defaults)
@@ -143,6 +144,55 @@ bool WhiteFleetStrategyBehaviorControl::parseMdfzRuleLine(const std::string& lin
   if(ok)
     mdfzRules.rules.push_back(rule);
   return ok;
+}
+
+void WhiteFleetStrategyBehaviorControl::updateSituationMode()
+{
+  const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
+  const SituationMode want = diff > 0 ? SituationMode::protect : (diff < 0 ? SituationMode::chase : SituationMode::balanced);
+  // timeWhenStateEnds is only valid for some states; treat 0 / past values as unknown.
+  const bool endgame = theGameState.timeWhenStateEnds > theFrameInfo.time &&
+                       theGameState.timeWhenStateEnds - theFrameInfo.time < 90000u;
+  if(want != situationMode || endgame != situationEndgame)
+  {
+    situationMode = want;
+    situationEndgame = endgame;
+    std::printf("MDFZ_SITUATION team=%d self=%d diff=%d mode=%s endgame=%d now=%u\n",
+      Global::getSettings().teamNumber, theGameState.playerNumber, diff,
+      situationMode == SituationMode::protect ? "protect" : situationMode == SituationMode::chase ? "chase" : "balanced",
+      situationEndgame ? 1 : 0, theFrameInfo.time);
+    std::fflush(stdout);
+    lastSituationLog = theFrameInfo.time;
+  }
+  // Rolling pressure score: 1 s samples, ~15 s memory. High values mean the opponent
+  // keeps the ball in our own half (we are pinned), which drives the anti-pin cover line.
+  if(theFrameInfo.getTimeSince(lastPinSample) >= 1000)
+  {
+    lastPinSample = theFrameInfo.time;
+    const Vector2f ball = theFieldBall.recentBallPositionOnField();
+    const float ballX = ball.allFinite() ? ball.x() : 0.f;
+    pinScore = pinScore * 0.85f + (ballX < 0.f ? 0.15f : 0.f);
+  }
+  // Fresh-phase shield: right after conceding, play compact for a few seconds instead
+  // of immediately chasing the equalizer into another counter.
+  if(theGameState.opponentTeam.score > lastOppScore)
+  {
+    lastOppScore = theGameState.opponentTeam.score;
+    shieldUntil = theFrameInfo.time + 5000;
+    std::printf("MDFZ_SHIELD self=%d reason=conceded until=%u\n", theGameState.playerNumber, shieldUntil);
+    std::fflush(stdout);
+  }
+  else
+    lastOppScore = theGameState.opponentTeam.score;
+}
+
+bool WhiteFleetStrategyBehaviorControl::restDefenseActive() const
+{
+  const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
+  // Only give up the rest defense when there is nothing left to lose:
+  // two goals behind, or behind with the match about to end.
+  const bool desperate = diff <= -2 || (diff < 0 && situationEndgame);
+  return !desperate;
 }
 
 std::vector<ModuleBase::Info> WhiteFleetStrategyBehaviorControl::getExtModuleInfo()
@@ -218,6 +268,7 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     theStrategyStatus.setPlayStep = self->setPlayStep;
     theStrategyStatus.position = self->position;
     theStrategyStatus.role = self->role;
+    updateSituationMode(); // Score / endgame analysis drives the automatic rest defense below.
     if(WhiteFleetDefenseCounterSwitch::enabled()&&!autonomousKickoff)
       applyDefenseCounter(skillRequest,*self);
     if(WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff)&&
@@ -946,6 +997,47 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
   const Vector2f ball=theFieldBall.recentBallPositionOnField();
   if(!ball.allFinite()){mdfzRules.active=-1;return false;}
   const Vector2f ownGoal(theFieldDimensions.xPosOwnGoalLine,0.f),oppGoal(theFieldDimensions.xPosOpponentGoalLine,0.f);
+  // Automatic rest defense: while the team attacks, the supporting player holds a
+  // cover line 3 m behind the ball but never past the halfway line, so a lost ball
+  // cannot become an immediate counter. Only a desperate chase gives this up.
+  // While pinned in our own half, the line may move up to 1.5 m into the opponent
+  // half so that our attacks are not completely starved of support.
+  if(!ballRole && restDefenseActive() && ball.x() > 500.f)
+  {
+    const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
+    const bool pinned = pinScore >= 0.55f && diff <= 0;
+    // v5: the cover line stays high enough to combine in attack, but both players
+    // never commit: +2 m normally, +3.5 m while chasing, +1 m more when pinned.
+    float coverCap = diff < 0 ? 3500.f : 2000.f;
+    if(pinned) coverCap += 1000.f;
+    Vector2f cover(std::min(ball.x() - 3000.f, coverCap), ball.y());
+    cover.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f, cover.x());
+    cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f, std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
+    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));
+    mdfzRules.active = -1;
+    if(theFrameInfo.getTimeSince(lastRestDefenseLog) >= 5000)
+    {
+      lastRestDefenseLog = now;
+      std::printf("MDFZ_RESTDEF self=%d ball=%.0f,%.0f cover=%.0f,%.0f diff=%d endgame=%d pin=%.2f\n",
+        self.number, ball.x(), ball.y(), cover.x(), cover.y(),
+        static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score),
+        situationEndgame ? 1 : 0, pinScore);
+    }
+    return true;
+  }
+  // Fresh-phase shield: right after a (re)start or right after conceding, the support
+  // holds a pure goal-side cover position for a few seconds instead of pushing up.
+  if(!ballRole && (theFrameInfo.time < shieldUntil ||
+     (theGameState.timeWhenStateStarted > 0 && theGameState.timeWhenStateStarted <= theFrameInfo.time &&
+      theFrameInfo.time - theGameState.timeWhenStateStarted < 3000u)))
+  {
+    Vector2f cover = ownGoal + (ball - ownGoal).normalized(std::min(2500.f, (ball - ownGoal).norm() * 0.5f));
+    cover.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f, cover.x());
+    cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f, std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
+    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));
+    mdfzRules.active = -1;
+    return true;
+  }
   float oppBallDist=100000.f;const Vector2f* nearestOpp=nullptr;Vector2f oppPos;
   for(const auto& obstacle:theObstacleModel.obstacles)
     if(obstacle.isOpponent()&&obstacle.lastSeen&&obstacle.lastSeen<=now&&now-obstacle.lastSeen<=1000&&obstacle.center.allFinite())
@@ -956,6 +1048,21 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
   const float values[8]={ball.x(),ball.y(),std::abs(ball.y()),(ball-ownGoal).norm(),(ball-oppGoal).norm(),
     (ball-theRobotPose.translation).norm(),oppBallDist,
     static_cast<float>(static_cast<int>(theGameState.ownTeam.score)-static_cast<int>(theGameState.opponentTeam.score))};
+  // Dynamic shot range: while chasing or in the final minutes, accept a shot from up
+  // to 6.5 m (the default rule stays at 5.5 m). Needs a bit more space (1 m).
+  if(ballRole && (situationMode == SituationMode::chase || situationEndgame) &&
+     values[4] < 6500.f && values[6] > 1000.f)
+  {
+    if(theFrameInfo.getTimeSince(lastShotRangeLog) >= 2000)
+    {
+      lastShotRangeLog = now;
+      std::printf("MDFZ_SHOTRANGE self=%d oppGoalDist=%.0f oppBallDist=%.0f mode=%s\n",
+        self.number, values[4], values[6], situationMode == SituationMode::chase ? "chase" : "endgame");
+    }
+    request = SkillRequest::Builder::shoot();
+    request.mdfzRule = true;
+    return true;
+  }
   const Agent* mate=nullptr;
   for(const Agent& peer:agents)
     if(peer.number!=self.number&&!peer.isGoalkeeper&&peer.isUpright&&
@@ -1003,7 +1110,28 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
     {
       case 0: request=SkillRequest::Builder::shoot();break;
       case 1: request=SkillRequest::Builder::clear();break;
-      case 2: request=SkillRequest::Builder::passTo(mate->number);break;
+      case 2:
+      {
+        // Pass decision safety gate (same rating the outlet uses): a blocked lane is
+        // not a pass. In our third fall back to a clear, otherwise carry the ball.
+        const float laneRating=thePassEvaluation.getRating(ball,mate->pose.translation,false);
+        if(std::isfinite(laneRating)&&laneRating>=0.7f)
+          request=SkillRequest::Builder::passTo(mate->number);
+        else
+        {
+          if((ball-ownGoal).norm()<3500.f)
+            request=SkillRequest::Builder::clear();
+          else
+            request=SkillRequest::Builder::dribbleTo(Angle((oppGoal-ball).angle()));
+          if(theFrameInfo.getTimeSince(lastPassGateLog)>=2000)
+          {
+            lastPassGateLog=now;
+            std::printf("MDFZ_PASSGATE self=%d rating=%.2f fallback=%s\n",self.number,
+              std::isfinite(laneRating)?laneRating:-1.f,(ball-ownGoal).norm()<3500.f?"clear":"dribble");
+          }
+        }
+        break;
+      }
       case 3: request=SkillRequest::Builder::dribbleTo(Angle((oppGoal-ball).angle()));break;
       default: break; // native: keep the team's own decision
     }
