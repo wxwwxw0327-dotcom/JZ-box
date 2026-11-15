@@ -50,6 +50,49 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
 
   resetHistoryData();
 
+  // ===================== MDFZ SPEED UP =====================
+  // 行为层传来的 walkSpeed 是最大值比例, 被 ZeroOneRange 限在 1.0 以内,
+  // 所以想要比别人快, 只能抬高引擎侧的三个物理上限: 
+  //   1) fast 步幅多边形 (mm/s, deg/s)
+  //   2) 每次换脚允许的加减速 (mm/s per step)
+  //   3) 步频 (每秒迈几步)
+  // 三个数就是全部旋钮: 改大更快, 改小更稳. 单位是倍数.
+  {
+    const float gSpeed = 1.16f;   // 步幅与速度上限倍数
+    const float gAccel = 1.35f;   // 加减速上限倍数, 起步和变向不掉速
+    const float gFreq = 1.08f;    // 步频倍数
+
+    // 1) 绝对速度上限: 走/跑/退/转/极限追球四个档案一起抬
+    configuredParameters.fastWalkSpeed.maxSpeed.translation.x() *= gSpeed;
+    configuredParameters.fastWalkSpeed.maxSpeed.translation.y() *= gSpeed;
+    configuredParameters.fastWalkSpeed.maxSpeed.rotation *= gSpeed;
+    configuredParameters.fastWalkSpeed.maxSpeedBackwards *= gSpeed;
+    configuredParameters.maxPossibleSpeed.maxSpeed.translation.x() *= gSpeed;
+    configuredParameters.maxPossibleSpeed.maxSpeed.translation.y() *= gSpeed;
+    configuredParameters.maxPossibleSpeed.maxSpeed.rotation *= gSpeed;
+    configuredParameters.maxPossibleSpeed.maxSpeedBackwards *= gSpeed;
+    // 这两条是速度多边形的切角, 不一起抬会把侧向和斜向速度卡在原值
+    configuredParameters.maxSideAtMaxForward *= gSpeed;
+    configuredParameters.maxForwardAtMaxSide *= gSpeed;
+
+    // 2) 每次换脚允许的步长变化: 加速更猛, 起跑和转身后更快回到全速
+    commonSpeedParameters.maxAcceleration *= gAccel;
+    commonSpeedParameters.maxDeceleration *= gAccel;
+
+    // 3) 步频: 同一套神经网络步态, 每秒多迈 8% 的步
+    frequencyParametersWalk.base *= gFreq;
+
+    // 4) 步长缩放上限: xTargetScaling/yTargetScaling.walkSpeed 是框架把归一化
+    //    距离换成步长时的绝对上限. 不一起抬的话, 上面放大的 fast 多边形会在
+    //    getTranslationPolygon 里被它重新卡回原值, 等于白改.
+    //    这里用 max(旧上限*gSpeed, 新 fast 上限) 保证缩放比例能真正到 1.0.
+    commonSpeedParameters.xTargetScaling.walkSpeed.min *= gSpeed;
+    commonSpeedParameters.xTargetScaling.walkSpeed.max = std::max(commonSpeedParameters.xTargetScaling.walkSpeed.max * gSpeed, configuredParameters.fastWalkSpeed.maxSpeed.translation.x());
+    commonSpeedParameters.yTargetScaling.walkSpeed.min *= gSpeed;
+    commonSpeedParameters.yTargetScaling.walkSpeed.max = std::max(commonSpeedParameters.yTargetScaling.walkSpeed.max * gSpeed, configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
+  }
+  // =================== MDFZ SPEED UP END ===================
+
   const WhiteFleetDummyPhase dummy(MotionPhase::playDead);
   WhiteFleetWalkPhase phase(*this, Pose2f(), dummy);
 
@@ -79,9 +122,13 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
   translationPolygonMaxPossible.emplace_back(Vector2f(-maxSpeedMP.maxSpeedBackwards, maxSideAtMaxForwardMP));
   translationPolygonMaxPossible.emplace_back(Vector2f(-maxBackwardAtMaxSideMP, maxSpeedMP.maxSpeed.translation.y()));
 
-  configuredParameters.normalWalkSpeed.maxSpeed.translation.x() = std::min(fastSpeed.maxSpeed.translation.x() * 0.99f, configuredParameters.normalWalkSpeed.maxSpeed.translation.x());
-  configuredParameters.normalWalkSpeed.maxSpeed.translation.y() = std::min(fastSpeed.maxSpeed.translation.y() * 0.99f, configuredParameters.normalWalkSpeed.maxSpeed.translation.y());
-  configuredParameters.normalWalkSpeed.maxSpeed.rotation = std::min(fastSpeed.maxSpeed.rotation * 0.99f, static_cast<float>(configuredParameters.normalWalkSpeed.maxSpeed.rotation));
+  // MDFZ: normal 档就是 ReduceWalkSpeedType::normal 的上限, 原来被配置文件里
+  // 那个保守的 normal 值压住 (min 两边取小). 这里直接贴到 fast 的 99%,
+  // 于是所有走 normal 档的跑位请求都按接近全速执行.
+  // slow 档保持原逻辑不动, 留给带球/靠近球/精确对准这些需要稳的场合.
+  configuredParameters.normalWalkSpeed.maxSpeed.translation.x() = fastSpeed.maxSpeed.translation.x() * 0.99f;
+  configuredParameters.normalWalkSpeed.maxSpeed.translation.y() = fastSpeed.maxSpeed.translation.y() * 0.99f;
+  configuredParameters.normalWalkSpeed.maxSpeed.rotation = Angle(fastSpeed.maxSpeed.rotation * 0.99f);
 
   configuredParameters.slowWalkSpeed.maxSpeed.translation.x() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() * 0.99f, configuredParameters.slowWalkSpeed.maxSpeed.translation.x());
   configuredParameters.slowWalkSpeed.maxSpeed.translation.y() = std::min(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() * 0.99f, configuredParameters.slowWalkSpeed.maxSpeed.translation.y());
