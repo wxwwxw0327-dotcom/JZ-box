@@ -167,6 +167,14 @@ private:
   bool applyMdfzFormation(SkillRequest& request, const Agent& self);
   bool applyMdfzRules(SkillRequest& request, const Agent& self); // MDFZ arena: class rules (mdfzRules.cfg)
   bool parseMdfzRuleLine(const std::string& line); // MDFZ arena: one rule line of mdfzRules.cfg syntax (shared by workshop file and built-in defaults)
+  // MDFZ arena: automatic situational coach. Reads score difference and remaining
+  // time, and switches the team between protect / balanced / chase behaviour.
+  enum class SituationMode {balanced, protect, chase};
+  SituationMode situationMode = SituationMode::balanced;
+  bool situationEndgame = false;
+  unsigned lastSituationLog = 0, lastRestDefenseLog = 0;
+  void updateSituationMode();
+  bool restDefenseActive() const; // true unless the team is desperately chasing
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
