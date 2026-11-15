@@ -214,6 +214,30 @@ private:
   std::vector<Vector2f> translationPolygon; /**< The polygon that defines the max allowed translation for the step size. */
   std::vector<Vector2f> translationPolygonMaxPossible; /**< The polygon that defines the max allowed translation for the actual max limits for the step size. */
 
+  // ===== MDFZ 动态速度档位: 巡航 2.3 m/s / 冲刺 3.0 m/s =====
+  WhiteFleetConfiguredParameters baseConfiguredParameters;   /**< 未放大的基准速度档案 */
+  WhiteFleetCommonSpeedParameters baseCommonSpeedParameters; /**< 未放大的基准加减速与目标缩放 */
+  WhiteFleetFrequencyParameters baseFrequencyParametersWalk; /**< 未放大的基准步频参数 */
+  WhiteFleetStepSizeParameters baseStepSizeParameters;       /**< 未放大的基准转弯降速曲线 */
+  Rangef baseActionClipRange = Rangef(-1.f, 1.f);            /**< 未放大的关节动作 clip */
+  float sprintBlend = 0.f;        /**< 当前档位 0=巡航 1=冲刺 */
+  float sprintTarget = 0.f;       /**< 目标档位 */
+  float lastAppliedBlend = -1.f;  /**< 已应用的档位, 避免每帧重建 */
+  unsigned sprintHold = 0;        /**< 连续满足冲刺条件的帧数 */
+  unsigned sprintRelease = 0;     /**< 连续不满足的帧数 */
+
+  /** 按档位从基准重新派生全部速度参数与速度多边形. */
+  void applyProfile(float blend);
+
+  /** 按当前参数重建 speed polygon. */
+  void rebuildTranslationPolygons();
+
+  /** 本帧是否该用冲刺档. */
+  bool decideSprint() const;
+
+  /** 按剩余距离算出的允许速度比例(1=不刹, 越小刹得越狠). */
+  float brakeSpeedRatio() const;
+
   const std::string modelPath = std::string(File::getBHDir()) + "/Config/NeuralNets/Walk/";
 };
 
