@@ -113,6 +113,17 @@ private:
    */
   void update(JointRequest& jointRequest);
 
+  // MDFZ: split (wide-leg) block. When a ball is about to pass beside the robot and
+  // walking cannot put a foot there in time, throw one leg sideways for ~320 ms.
+  // Every angle is clamped by theJointLimits in update(), so an over-rotation can
+  // never reach the hardware; the phase state machine is untouched, so a fall or a
+  // get-up still wins over this overlay.
+  unsigned splitBlockStart = 0;
+  JointRequest splitBlockFrom;
+  bool splitBlockLeftOut = false;
+  bool shouldSplitBlock(const MotionRequest& motionRequest) const;
+  void applySplitBlock(JointRequest& jointRequest, const unsigned elapsed) const;
+
   /**
    * This method is called when the representation provided needs to be updated.
    * @param motionInfo The representation updated.

@@ -8,6 +8,8 @@
  */
 
 #include "WhiteFleetMotionEngine.h"
+#include <algorithm>
+#include <cmath>
 #include "WhiteFleetOpponentGoalKickGuard.h"
 #include "Debugging/Annotation.h"
 #include "Debugging/Debugging.h"
@@ -301,6 +303,23 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
     motionInfo.speed = Pose2f(0_deg, 0.f, 0.f);
 
   // Copy the new joint request into the final one (in order to convert ignore, off and useDefault).
+  // MDFZ: split block. Overlay the leg joints for a few frames only; the normal
+  // phase keeps running underneath, so nothing in the state machine changes.
+  if(splitBlockStart == 0 && shouldSplitBlock(motionRequest))
+  {
+    splitBlockStart = theFrameInfo.time;
+    splitBlockFrom = lastRequest;
+    splitBlockLeftOut = motionRequest.ballEstimate.position.y() > 0.f;
+  }
+  if(splitBlockStart != 0)
+  {
+    const unsigned splitElapsed = theFrameInfo.getTimeSince(splitBlockStart);
+    if(splitElapsed > 320u || theFallDownState.state != FallDownState::upright)
+      splitBlockStart = 0;
+    else
+      applySplitBlock(newJoints, splitElapsed);
+  }
+
   MotionUtilities::copy(newJoints, jointRequest, static_cast<Joints::Joint>(0),
                         static_cast<Joints::Joint>(Joints::numOfJoints));
 
@@ -420,4 +439,78 @@ WhiteFleetPlayDeadPhase::WhiteFleetPlayDeadPhase(const MotionPhase& lastPhase, c
                               engine.theFrameInfo.time :
                               lastPlayDeadPhase.uprightWarningTimestamp;
   }
+}
+
+bool WhiteFleetMotionEngine::shouldSplitBlock(const MotionRequest& r) const
+{
+  if(!theGameState.isPlaying() || theGameState.stopped || theGameState.isGoalkeeper())
+    return false;
+  if(theFallDownState.state != FallDownState::upright)
+    return false;
+  if(!phase || (phase->type != MotionPhase::walk && phase->type != MotionPhase::stand))
+    return false;
+
+  const Vector2f ball = r.ballEstimate.position;
+  const Vector2f vel = r.ballEstimate.velocity;
+  if(!ball.allFinite() || !vel.allFinite())
+    return false;
+
+  const float dist = ball.norm();
+  const float speed = vel.norm();
+  if(dist < 180.f || dist > 1200.f || speed < 500.f)
+    return false;
+
+  // Only a ball arriving from the side. A ball straight ahead is the walk engine's job.
+  if(std::abs(ball.y()) < 180.f)
+    return false;
+
+  const float closing = -vel.dot(ball) / std::max(1.f, dist);
+  if(closing < 400.f)
+    return false;
+
+  // About to arrive: 0.32 s or less.
+  if((dist - 180.f) / std::max(1.f, closing) > 0.32f)
+    return false;
+
+  // Walking already covers it: foot is basically on the ball line.
+  if(std::abs(ball.y()) < 240.f && std::abs(ball.x()) < 300.f)
+    return false;
+
+  return true;
+}
+
+void WhiteFleetMotionEngine::applySplitBlock(JointRequest& jointRequest, const unsigned elapsed) const
+{
+  const float t = std::min(1.f, static_cast<float>(elapsed) / 110.f);   // 110 ms to open
+  const float s = std::sin(t * 1.5707963f);                             // smooth, no overshoot
+
+  const Joints::Joint hipRoll = splitBlockLeftOut ? Joints::lHipRoll : Joints::rHipRoll;
+  const Joints::Joint kneePitch = splitBlockLeftOut ? Joints::lKneePitch : Joints::rKneePitch;
+  const Joints::Joint hipPitch = splitBlockLeftOut ? Joints::lHipPitch : Joints::rHipPitch;
+  const Joints::Joint ankleRoll = splitBlockLeftOut ? Joints::lAnkleRoll : Joints::rAnkleRoll;
+
+  // Outwards: take whichever end of the joint range is larger in absolute value, so the
+  // sign never has to be guessed. 85 % of the range keeps a margin from the hard stop.
+  const Rangea& lim = theJointLimits.limits[hipRoll];
+  const float limMin = static_cast<float>(lim.min);
+  const float limMax = static_cast<float>(lim.max);
+  const float out = (std::abs(limMin) > std::abs(limMax) ? limMin : limMax) * 0.85f;
+
+  const auto blend = [&](const Joints::Joint joint, const float target)
+  {
+    const float from = static_cast<float>(splitBlockFrom.angles[joint]);
+    jointRequest.angles[joint] = Angle(from * (1.f - s) + target * s);
+  };
+
+  blend(hipRoll, out);
+  blend(kneePitch, 35.f);
+  blend(hipPitch, 0.f);
+  blend(ankleRoll, -out * 0.4f);
+
+  // Support leg: crouch, otherwise the centre of mass leaves the standing foot.
+  blend(splitBlockLeftOut ? Joints::rHipPitch : Joints::lHipPitch, -25.f);
+  blend(splitBlockLeftOut ? Joints::rKneePitch : Joints::lKneePitch, 50.f);
+
+  FOREACH_ENUM(Joints::Joint, j)
+    jointRequest.stiffnessData.stiffnesses[j] = 100;
 }
