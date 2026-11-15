@@ -1002,7 +1002,15 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
   // cannot become an immediate counter. Only a desperate chase gives this up.
   // While pinned in our own half, the line may move up to 1.5 m into the opponent
   // half so that our attacks are not completely starved of support.
-  if(!ballRole && restDefenseActive() && ball.x() > 500.f)
+  // MDFZ: latch the cover line with a 700 mm dead band around the halfway line.
+  // The old threshold was a single value (ball.x() > 500), so a ball rolling across
+  // the middle switched the supporting player between the cover point and the
+  // formation base several times per second.
+  if(ball.x() > 900.f)
+    restDefenseLatched = true;
+  else if(ball.x() < 200.f)
+    restDefenseLatched = false;
+  if(!ballRole && restDefenseActive() && restDefenseLatched)
   {
     const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
     const bool pinned = pinScore >= 0.55f && diff <= 0;
@@ -1010,7 +1018,14 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
     // never commit: +2 m normally, +3.5 m while chasing, +1 m more when pinned.
     float coverCap = diff < 0 ? 3500.f : 2000.f;
     if(pinned) coverCap += 1000.f;
-    Vector2f cover(std::min(ball.x() - 3000.f, coverCap), ball.y());
+    // MDFZ: 600 mm lateral dead band. The cover point used the ball's raw y, so a ball
+    // drifting down the wing dragged the supporting player across the whole field.
+    if(coverBallYSample == 0 || std::abs(ball.y() - coverBallYHold) > 600.f)
+    {
+      coverBallYHold = ball.y();
+      coverBallYSample = now;
+    }
+    Vector2f cover(std::min(ball.x() - 3000.f, coverCap), coverBallYHold);
     cover.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f, cover.x());
     cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f, std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
     request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));

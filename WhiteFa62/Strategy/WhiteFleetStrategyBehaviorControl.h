@@ -176,6 +176,13 @@ private:
   float pinScore = 0.f; // 0..1 rolling pressure in our own half (1 s samples, ~15 s memory)
   unsigned lastPinSample = 0, lastPassGateLog = 0, lastShotRangeLog = 0;
   unsigned shieldUntil = 0, lastOppScore = 0; // fresh-phase protection after conceding
+  // MDFZ: support-position arbitration. The rest-defense cover, the formation base and
+  // the workshop rules all move the same supporting player. Without a latch they take
+  // turns every frame, and the robot jogs back and forth - which reads as "messy
+  // positioning" as soon as the walking engine is fast enough to show it.
+  bool restDefenseLatched = false;
+  float coverBallYHold = 0.f;
+  unsigned coverBallYSample = 0;
   void updateSituationMode();
   bool restDefenseActive() const; // true unless the team is desperately chasing
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
