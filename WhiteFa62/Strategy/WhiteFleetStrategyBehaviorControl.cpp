@@ -87,10 +87,10 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
       "ball pass if oppBallDist<1.2",                  // marked closely: pass to the front-most teammate
       "ball dribble if scoreDiff<0 oppBallDist>1.2",   // behind: keep advancing under moderate pressure
       "ball dribble if oppBallDist>1.8",               // free field: carry the ball forward
-      "support guard if ballX<-1.5",                   // ball deep in the own half: cover goal-side
+      "support guard if ballX<-3",                     // ball deep in the own half: cover goal-side
       "support follow 0.8 if scoreDiff<0",             // behind: hug the play and push up
       "support mark if scoreDiff>0",                   // leading: mark the most dangerous opponent
-      "support follow 2 if absBallY>1.5",              // ball on the wing: support behind on the wing line
+      "support follow 2 if absBallY>2.5",              // ball on the wing: support behind on the wing line
       "support follow 1 if ballX>0.5",                 // ball in the opponent half: push up behind the ball
     };
     for(const char* const rule : defaults)
