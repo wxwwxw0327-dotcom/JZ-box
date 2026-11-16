@@ -2149,3 +2149,46 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
     std::fflush(stdout);
   }
 }
+
+void WhiteFleetStrategyBehaviorControl::applyCornerKickPositions(SkillRequest& request, const Agent& self)
+{
+  const GameState::State state = theGameState.state;
+  const bool defending = state == GameState::opponentCornerKick;
+  const bool attacking = state == GameState::ownCornerKick;
+  if(!defending && !attacking)
+    return;
+  if(self.isGoalkeeper || request.skill != SkillRequest::walk)
+    return;
+  if(!theFieldBall.positionOnField.allFinite())
+    return;
+
+  const Tactic::Position::Type pos = self.position;
+  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
+                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
+                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
+  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
+                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
+  if(!defender && !forward)
+    return;
+
+  // Ball side: the corner is taken from one touchline, so the near post is on that side.
+  const float side = theFieldBall.positionOnField.y() > 0.f ? 1.f : -1.f;
+  const float goalLine = defending ? theFieldDimensions.xPosOwnGoalLine : theFieldDimensions.xPosOpponentGoalLine;
+  const float dir = defending ? 1.f : -1.f;   // inwards from that goal line
+
+  Vector2f target;
+  if(defending)
+  {
+    // Defender guards the near post, forward covers the top of the box (the man coming
+    // from the centre circle). Three-a-side cannot also mark the taker.
+    target = defender ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
+                      : Vector2f(goalLine + dir * 2600.f, 0.f);
+  }
+  else
+  {
+    // Attacking: forward attacks the near post, defender stays back for the counter.
+    target = forward ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
+                     : Vector2f(500.f, 0.f);
+  }
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
+}
