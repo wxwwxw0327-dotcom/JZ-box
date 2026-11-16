@@ -2115,7 +2115,7 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
                                state == GameState::opponentKickOff;
   if(!opponentKickOff || self.isGoalkeeper || request.skill != SkillRequest::walk)
     return;
-  if(!request.target.translation.allFinite() || !theRobotPose.translation.allFinite())
+  if(!theRobotPose.translation.allFinite())
     return;
 
   const Tactic::Position::Type pos = self.position;
@@ -2124,13 +2124,15 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
                         pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
   const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
                        pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
-  const float stepBack = defender ? 1500.f : forward ? 500.f : 0.f;
-  if(stepBack <= 0.f)
+  if(!defender && !forward)
     return;
 
-  Pose2f target = theRobotPose * request.target;          // into field coordinates
-  target.translation.x() -= stepBack;                     // own goal is at -x: this is a step back
-  target.translation.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f,
-                                    std::min(theFieldDimensions.xPosOpponentGoalLine - 300.f, target.translation.x()));
-  request.target = theRobotPose.inverse() * target;      // and back to relative coordinates
+  // v21: absolute positions, not "base pose minus an offset". Both field players line up
+  // on the centre line, one behind the other, just outside the centre circle (the rules
+  // forbid entering it while the opponent takes the kick-off). The near player closes the
+  // straight line through the middle, the far player covers the pass behind him.
+  const float circle = theFieldDimensions.centerCircleRadius;
+  const float x = defender ? -(circle + 1200.f) : -(circle + 250.f);
+  const Vector2f target(x, 0.f);
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
 }
