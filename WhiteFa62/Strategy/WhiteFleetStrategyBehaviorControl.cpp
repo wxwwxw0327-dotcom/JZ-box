@@ -297,6 +297,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     }
   }
 
+  // MDFZ: opponent kick-off step-back (last layer, so nothing above it overrides the offset).
+  if(self && !wasPenalized)
+    applyOpponentKickOffStepBack(skillRequest, *self);
+
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
@@ -2101,4 +2105,32 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
+}
+
+void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)
+{
+  const GameState::State state = theGameState.state;
+  const bool opponentKickOff = state == GameState::setupOpponentKickOff ||
+                               state == GameState::waitForOpponentKickOff ||
+                               state == GameState::opponentKickOff;
+  if(!opponentKickOff || self.isGoalkeeper || request.skill != SkillRequest::walk)
+    return;
+  if(!request.target.translation.allFinite() || !theRobotPose.translation.allFinite())
+    return;
+
+  const Tactic::Position::Type pos = self.position;
+  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
+                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
+                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
+  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
+                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
+  const float stepBack = defender ? 1500.f : forward ? 500.f : 0.f;
+  if(stepBack <= 0.f)
+    return;
+
+  Pose2f target = theRobotPose * request.target;          // into field coordinates
+  target.translation.x() -= stepBack;                     // own goal is at -x: this is a step back
+  target.translation.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f,
+                                    std::min(theFieldDimensions.xPosOpponentGoalLine - 300.f, target.translation.x()));
+  request.target = theRobotPose.inverse() * target;      // and back to relative coordinates
 }
