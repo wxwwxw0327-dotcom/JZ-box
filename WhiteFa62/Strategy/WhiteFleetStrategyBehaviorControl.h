@@ -188,6 +188,10 @@ private:
   // MDFZ: when the opponent takes a kick-off, the defending side steps back so a ball
   // driven straight through the middle cannot split the two field players.
   void applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self);
+  // MDFZ: corner-kick positioning for both sides. The stock tactic has no set-piece
+  // spots, so both players otherwise stand on their normal base poses and leave the
+  // near post / the top of the box empty.
+  void applyCornerKickPositions(SkillRequest& request, const Agent& self);
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
