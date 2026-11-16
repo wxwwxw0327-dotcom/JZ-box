@@ -2136,7 +2136,7 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
   }();
 
   const float circle = theFieldDimensions.centerCircleRadius;
-  const float x = front ? -(circle + 250.f) : -(circle + 1200.f);
+  const float x = front ? -(circle + 150.f) : -(circle + 1650.f);   // 前后相距 1500mm, 肉眼可见的竖排
   request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), Vector2f(x, 0.f)));
 
   if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
