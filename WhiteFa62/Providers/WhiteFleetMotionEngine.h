@@ -127,7 +127,7 @@ private:
   JointRequest splitBlockFrom;
   bool splitBlockLeftOut = false;
   bool shouldSplitBlock(const MotionRequest& motionRequest) const;
-  void applySplitBlock(JointRequest& jointRequest, const unsigned elapsed) const;
+  void applySplitBlock(JointRequest& jointRequest, const unsigned elapsed, const bool symmetric) const;
 
   /**
    * This method is called when the representation provided needs to be updated.

@@ -329,7 +329,7 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
       std::fflush(stdout);
     }
     else
-      applySplitBlock(newJoints, testElapsed);
+      applySplitBlock(newJoints, testElapsed, true);
   }
   else
   {
@@ -347,7 +347,7 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
       if(splitElapsed > 320u || theFallDownState.state != FallDownState::upright)
         splitBlockStart = 0;
       else
-        applySplitBlock(newJoints, splitElapsed);
+        applySplitBlock(newJoints, splitElapsed, false);
     }
   }
 
@@ -510,22 +510,10 @@ bool WhiteFleetMotionEngine::shouldSplitBlock(const MotionRequest& r) const
   return true;
 }
 
-void WhiteFleetMotionEngine::applySplitBlock(JointRequest& jointRequest, const unsigned elapsed) const
+void WhiteFleetMotionEngine::applySplitBlock(JointRequest& jointRequest, const unsigned elapsed, const bool symmetric) const
 {
   const float t = std::min(1.f, static_cast<float>(elapsed) / 110.f);   // 110 ms to open
   const float s = std::sin(t * 1.5707963f);                             // smooth, no overshoot
-
-  const Joints::Joint hipRoll = splitBlockLeftOut ? Joints::lHipRoll : Joints::rHipRoll;
-  const Joints::Joint kneePitch = splitBlockLeftOut ? Joints::lKneePitch : Joints::rKneePitch;
-  const Joints::Joint hipPitch = splitBlockLeftOut ? Joints::lHipPitch : Joints::rHipPitch;
-  const Joints::Joint ankleRoll = splitBlockLeftOut ? Joints::lAnkleRoll : Joints::rAnkleRoll;
-
-  // Outwards: take whichever end of the joint range is larger in absolute value, so the
-  // sign never has to be guessed. 85 % of the range keeps a margin from the hard stop.
-  const Rangea& lim = theJointLimits.limits[hipRoll];
-  const float limMin = static_cast<float>(lim.min);
-  const float limMax = static_cast<float>(lim.max);
-  const float out = (std::abs(limMin) > std::abs(limMax) ? limMin : limMax) * 0.85f;
 
   const auto blend = [&](const Joints::Joint joint, const float target)
   {
@@ -533,14 +521,41 @@ void WhiteFleetMotionEngine::applySplitBlock(JointRequest& jointRequest, const u
     jointRequest.angles[joint] = Angle(from * (1.f - s) + target * s);
   };
 
-  blend(hipRoll, out);
-  blend(kneePitch, 35.f);
-  blend(hipPitch, 0.f);
-  blend(ankleRoll, -out * 0.4f);
-
-  // Support leg: crouch, otherwise the centre of mass leaves the standing foot.
-  blend(splitBlockLeftOut ? Joints::rHipPitch : Joints::lHipPitch, -25.f);
-  blend(splitBlockLeftOut ? Joints::rKneePitch : Joints::lKneePitch, 50.f);
+  if(symmetric)
+  {
+    // True split (横叉): both legs open sideways. The joint range is asymmetric
+    // (lHipRoll -22.8..+90, rHipRoll -90..+22.8), so "outwards" is + for the left leg
+    // and - for the right one. 28 deg each opens 56 deg in total - wide enough to be
+    // obvious in a replay, small enough that the centre of mass stays between the feet.
+    // Ankles are rolled back so the soles stay flat; knees only bend 12 deg, because a
+    // large knee pitch is what made the earlier version read as "one leg forward".
+    constexpr float spread = 28.f;
+    blend(Joints::lHipRoll, +spread);
+    blend(Joints::rHipRoll, -spread);
+    blend(Joints::lHipPitch, -5.f);
+    blend(Joints::rHipPitch, -5.f);
+    blend(Joints::lKneePitch, 12.f);
+    blend(Joints::rKneePitch, 12.f);
+    blend(Joints::lAnkleRoll, -spread * 0.8f);
+    blend(Joints::rAnkleRoll, +spread * 0.8f);
+  }
+  else
+  {
+    // One-legged side reach for interception: only the near leg goes out, the other one
+    // takes the weight with a small crouch. Both angles stay well inside the limits.
+    constexpr float reach = 32.f;
+    const float dir = splitBlockLeftOut ? 1.f : -1.f;
+    const Joints::Joint hipRoll = splitBlockLeftOut ? Joints::lHipRoll : Joints::rHipRoll;
+    const Joints::Joint kneePitch = splitBlockLeftOut ? Joints::lKneePitch : Joints::rKneePitch;
+    const Joints::Joint hipPitch = splitBlockLeftOut ? Joints::lHipPitch : Joints::rHipPitch;
+    const Joints::Joint ankleRoll = splitBlockLeftOut ? Joints::lAnkleRoll : Joints::rAnkleRoll;
+    blend(hipRoll, dir * reach);
+    blend(kneePitch, 10.f);
+    blend(hipPitch, -4.f);
+    blend(ankleRoll, -dir * reach * 0.7f);
+    blend(splitBlockLeftOut ? Joints::rKneePitch : Joints::lKneePitch, 18.f);
+    blend(splitBlockLeftOut ? Joints::rHipPitch : Joints::lHipPitch, -10.f);
+  }
 
   FOREACH_ENUM(Joints::Joint, j)
     jointRequest.stiffnessData.stiffnesses[j] = 100;
