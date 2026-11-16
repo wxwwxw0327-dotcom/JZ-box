@@ -188,6 +188,8 @@ private:
   // MDFZ: when the opponent takes a kick-off, the defending side steps back so a ball
   // driven straight through the middle cannot split the two field players.
   void applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self);
+  unsigned lastKickOffLog = 0;
+  GameState::State lastKickOffLoggedState = GameState::beforeHalf;
   // MDFZ: corner-kick positioning for both sides. The stock tactic has no set-piece
   // spots, so both players otherwise stand on their normal base poses and leave the
   // near post / the top of the box empty.

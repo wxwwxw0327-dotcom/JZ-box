@@ -2117,69 +2117,35 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
   const bool opponentKickOff = state == GameState::setupOpponentKickOff ||
                                state == GameState::waitForOpponentKickOff ||
                                state == GameState::opponentKickOff;
-  if(!opponentKickOff || self.isGoalkeeper || request.skill != SkillRequest::walk)
+  if(!opponentKickOff || self.isGoalkeeper)
     return;
   if(!theRobotPose.translation.allFinite())
     return;
 
-  const Tactic::Position::Type pos = self.position;
-  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
-                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
-                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
-  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
-                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
-  if(!defender && !forward)
-    return;
+  // v23: decide front/back from the jersey number and the base poses, NOT from
+  // Tactic::Position. In 3v3 the positions handed out are defenderL / midfielder / forward
+  // depending on the roster, so a position-based test silently skipped one of the two
+  // players and left him standing side-by-side with his team mate.
+  const bool front = self.number == 3 ? true : self.number == 2 ? false : [&]
+  {
+    float otherX = 1e9f;
+    for(const Agent& a : agents)
+      if(a.number != self.number && !a.isGoalkeeper && a.baseTranslation.allFinite())
+        otherX = std::min(otherX, a.baseTranslation.x());
+    return self.baseTranslation.allFinite() && otherX < 1e8f && self.baseTranslation.x() > otherX;
+  }();
 
-  // v21: absolute positions, not "base pose minus an offset". Both field players line up
-  // on the centre line, one behind the other, just outside the centre circle (the rules
-  // forbid entering it while the opponent takes the kick-off). The near player closes the
-  // straight line through the middle, the far player covers the pass behind him.
   const float circle = theFieldDimensions.centerCircleRadius;
-  const float x = defender ? -(circle + 1200.f) : -(circle + 250.f);
-  const Vector2f target(x, 0.f);
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
-}
+  const float x = front ? -(circle + 250.f) : -(circle + 1200.f);
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), Vector2f(x, 0.f)));
 
-void WhiteFleetStrategyBehaviorControl::applyCornerKickPositions(SkillRequest& request, const Agent& self)
-{
-  const GameState::State state = theGameState.state;
-  const bool defending = state == GameState::opponentCornerKick;
-  const bool attacking = state == GameState::ownCornerKick;
-  if(!defending && !attacking)
-    return;
-  if(self.isGoalkeeper || request.skill != SkillRequest::walk)
-    return;
-  if(!theFieldBall.positionOnField.allFinite())
-    return;
-
-  const Tactic::Position::Type pos = self.position;
-  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
-                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
-                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
-  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
-                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
-  if(!defender && !forward)
-    return;
-
-  // Ball side: the corner is taken from one touchline, so the near post is on that side.
-  const float side = theFieldBall.positionOnField.y() > 0.f ? 1.f : -1.f;
-  const float goalLine = defending ? theFieldDimensions.xPosOwnGoalLine : theFieldDimensions.xPosOpponentGoalLine;
-  const float dir = defending ? 1.f : -1.f;   // inwards from that goal line
-
-  Vector2f target;
-  if(defending)
+  if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
   {
-    // Defender guards the near post, forward covers the top of the box (the man coming
-    // from the centre circle). Three-a-side cannot also mark the taker.
-    target = defender ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                      : Vector2f(goalLine + dir * 2600.f, 0.f);
+    lastKickOffLog = theFrameInfo.time;
+    lastKickOffLoggedState = state;
+    std::printf("MDFZ_KICKOFF_LINE team=%d self=%d state=%d num=%d front=%d x=%.0f skill=%d pos=%d\n",
+                Global::getSettings().teamNumber, self.number, static_cast<int>(state), self.number,
+                front ? 1 : 0, x, static_cast<int>(request.skill), static_cast<int>(self.position));
+    std::fflush(stdout);
   }
-  else
-  {
-    // Attacking: forward attacks the near post, defender stays back for the counter.
-    target = forward ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                     : Vector2f(500.f, 0.f);
-  }
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
 }
