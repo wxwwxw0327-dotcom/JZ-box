@@ -166,11 +166,10 @@ private:
   void applyOpponentSidePosition(SkillRequest& request, const Agent& self);
   bool applyMdfzFormation(SkillRequest& request, const Agent& self);
   bool applyMdfzRules(SkillRequest& request, const Agent& self); // MDFZ arena: class rules (mdfzRules.cfg)
-  bool parseMdfzRuleLine(const std::string& line); // MDFZ arena: one rule line of mdfzRules.cfg syntax (shared by workshop file and built-in defaults)
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
-  struct {bool enabled=false;float followBall=.4f;unsigned lastLog=0,lastStats=0;unsigned n[8]={0};} mdfzFormation; // n: applied,notPlaying,keeper,active,setPlay,skill,passTarget,outlet
+  struct {bool enabled=false;float followBall=.3f;unsigned lastLog=0,lastStats=0;unsigned n[8]={0};} mdfzFormation; // n: applied,notPlaying,keeper,active,setPlay,skill,passTarget,outlet
   struct OutletPlan {unsigned born=0,issued=0;int receiver=-1;Vector2f target=Vector2f::Zero();} outletPlan;
   WhiteFleetFleetProgressPolicy::Half supportHalf;
   unsigned lastSupportLog=0,lastOutletLog=0;

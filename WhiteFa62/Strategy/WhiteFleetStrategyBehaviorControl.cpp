@@ -38,11 +38,9 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
               theFrameInfo, theGameState, theIndirectKick, theTeamBallModel, theWalkingEngineOutput)
 {
   // MDFZ arena: a class's own formation. The file exists only in that class's scenario copy.
-  bool formationCfgFound=false;
   File file("mdfzFormation.cfg", "r");
   if(file.exists())
   {
-    formationCfgFound=true;
     char text[512] = {0};
     file.read(text, std::min<size_t>(file.getSize(), sizeof(text) - 1));
     mdfzFormation.enabled = std::strstr(text, "enabled = true;") != nullptr;
@@ -51,98 +49,60 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     std::printf("MDFZ_FORMATION_CONFIG team=%d enabled=%d followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.enabled, mdfzFormation.followBall);
     std::fflush(stdout);
   }
-  if(!formationCfgFound)
-  {
-    // No workshop formation cfg: activate the ball-oriented default support positioning
-    // (tactic base position shifted towards the ball by followBall, see the header).
-    mdfzFormation.enabled=true;
-    std::printf("MDFZ_FORMATION_DEFAULT team=%d enabled=1 followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.followBall);
-    std::fflush(stdout);
-  }
   // MDFZ arena: a class's own rules (behaviour workshop). The file exists only in that class's scenario copy.
   File rulesFile("mdfzRules.cfg", "r");
   if(rulesFile.exists())
   {
     std::string text(std::min<size_t>(rulesFile.getSize(), 8192), '\0');
     rulesFile.read(&text[0], text.size());
+    static const char* names[] = {"ballX", "ballY", "absBallY", "ownGoalDist", "oppGoalDist", "myBallDist", "oppBallDist", "scoreDiff"};
+    static const char* ballActions[] = {"shoot", "clear", "pass", "dribble", "native"};
+    static const char* supportActions[] = {"goto", "follow", "guard", "mark", "native"};
     std::istringstream lines(text);
     std::string line;
     while(std::getline(lines, line) && mdfzRules.rules.size() < 16)
-      parseMdfzRuleLine(line);
+    {
+      std::istringstream in(line);
+      std::string role, action, tok;
+      if(!(in >> role >> action) || (role != "ball" && role != "support"))
+        continue;
+      MdfzRule rule;
+      rule.ball = role == "ball";
+      rule.text = line;
+      rule.action = -1;
+      for(int i = 0; i < 5; ++i)
+        if(action == (rule.ball ? ballActions[i] : supportActions[i]))
+          rule.action = i;
+      if(rule.action < 0)
+        continue;
+      bool ok = true, inConds = false;
+      int numArgs = 0;
+      while(in >> tok)
+      {
+        if(tok == "if") {inConds = true; continue;}
+        if(!inConds)
+        {
+          (numArgs++ == 0 ? rule.a : rule.b) = static_cast<float>(std::atof(tok.c_str())) * 1000.f; // metres -> mm
+          continue;
+        }
+        const size_t op = tok.find_first_of("<>");
+        if(op == std::string::npos) {ok = false; break;}
+        MdfzCond cond;
+        cond.name = -1;
+        for(int i = 0; i < 8; ++i)
+          if(tok.compare(0, op, names[i]) == 0 && std::strlen(names[i]) == op)
+            cond.name = i;
+        if(cond.name < 0) {ok = false; break;}
+        cond.less = tok[op] == '<';
+        cond.value = static_cast<float>(std::atof(tok.c_str() + op + 1)) * (cond.name == 7 ? 1.f : 1000.f); // m -> mm, goals as is
+        rule.conds.push_back(cond);
+      }
+      if(ok)
+        mdfzRules.rules.push_back(rule);
+    }
     std::printf("MDFZ_RULES_CONFIG team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
     std::fflush(stdout);
   }
-  // Built-in tactical defaults, used ONLY when the workshop provided no rules.
-  // They run through the exact same parser and engine as mdfzRules.cfg, so a
-  // workshop cfg keeps full priority and can override these at any time.
-  // Semantics: first matching rule wins; a rule that fired keeps running for 1 s
-  // (anti-flicker); no match falls through to the native behavior.
-  if(mdfzRules.rules.empty())
-  {
-    static const char* const defaults[] =
-    {
-      "ball shoot if oppGoalDist<4.5 oppBallDist>0.8", // in front of the opponent box with space: shoot
-      "ball clear if ownGoalDist<3.5 oppBallDist<1.5", // pressed in the own third: strong clear upfield
-      "ball clear if scoreDiff>0 ownGoalDist<3.5",     // leading: no risks in the own third
-      "ball pass if oppBallDist<1.2",                  // marked closely: pass to the front-most teammate
-      "ball dribble if scoreDiff<0 oppBallDist>1.2",   // behind: keep advancing under moderate pressure
-      "ball dribble if oppBallDist>1.8",               // free field: carry the ball forward
-      "support guard if ballX<-1.5",                   // ball deep in the own half: cover goal-side
-      "support follow 0.8 if scoreDiff<0",             // behind: hug the play and push up
-      "support mark if scoreDiff>0",                   // leading: mark the most dangerous opponent
-      "support follow 2 if absBallY>1.5",              // ball on the wing: support behind on the wing line
-      "support follow 1 if ballX>0.5",                 // ball in the opponent half: push up behind the ball
-    };
-    for(const char* const rule : defaults)
-      parseMdfzRuleLine(rule);
-    std::printf("MDFZ_RULES_DEFAULTS team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
-    std::fflush(stdout);
-  }
-}
-
-bool WhiteFleetStrategyBehaviorControl::parseMdfzRuleLine(const std::string& line)
-{
-  static const char* names[] = {"ballX", "ballY", "absBallY", "ownGoalDist", "oppGoalDist", "myBallDist", "oppBallDist", "scoreDiff"};
-  static const char* ballActions[] = {"shoot", "clear", "pass", "dribble", "native"};
-  static const char* supportActions[] = {"goto", "follow", "guard", "mark", "native"};
-  std::istringstream in(line);
-  std::string role, action, tok;
-  if(!(in >> role >> action) || (role != "ball" && role != "support"))
-    return false;
-  MdfzRule rule;
-  rule.ball = role == "ball";
-  rule.text = line;
-  rule.action = -1;
-  for(int i = 0; i < 5; ++i)
-    if(action == (rule.ball ? ballActions[i] : supportActions[i]))
-      rule.action = i;
-  if(rule.action < 0)
-    return false;
-  bool ok = true, inConds = false;
-  int numArgs = 0;
-  while(in >> tok)
-  {
-    if(tok == "if") {inConds = true; continue;}
-    if(!inConds)
-    {
-      (numArgs++ == 0 ? rule.a : rule.b) = static_cast<float>(std::atof(tok.c_str())) * 1000.f; // metres -> mm
-      continue;
-    }
-    const size_t op = tok.find_first_of("<>");
-    if(op == std::string::npos) {ok = false; break;}
-    MdfzCond cond;
-    cond.name = -1;
-    for(int i = 0; i < 8; ++i)
-      if(tok.compare(0, op, names[i]) == 0 && std::strlen(names[i]) == op)
-        cond.name = i;
-    if(cond.name < 0) {ok = false; break;}
-    cond.less = tok[op] == '<';
-    cond.value = static_cast<float>(std::atof(tok.c_str() + op + 1)) * (cond.name == 7 ? 1.f : 1000.f); // m -> mm, goals as is
-    rule.conds.push_back(cond);
-  }
-  if(ok)
-    mdfzRules.rules.push_back(rule);
-  return ok;
 }
 
 std::vector<ModuleBase::Info> WhiteFleetStrategyBehaviorControl::getExtModuleInfo()
@@ -399,10 +359,7 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
     // The phase is finished, but a stationary unplayed centre ball must not
     // silently select ordinary pass/clear. A referee context change resets it;
     // trusted actual departure allows normal play, with no stale C15 restart.
-    // If no contract session was ever attempted (e.g. the partner was penalized),
-    // do not freeze here: fall through to the native kickoff so someone plays the ball.
-    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)
-      return kickoffThroughSession.event?refuseFirstFoot():false;
+    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)return refuseFirstFoot();
     return false;
   }
   // Publish only the phase's explicit roles; clear stale ordinary set plays.
@@ -444,11 +401,7 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
         isolatedKickoffPhase.reason,kickoffThroughSession.settleAt!=0);
     std::fflush(stdout); // Read-only first-episode stop observation, no motion/GC change.
     isolatedKickoffPhase.exitReported=true;
-    // Refuse (stand) only if a contract was actually attempted, to protect against
-    // a second touch by the kicker. "pair_unavailable_before_session" never
-    // attempted anything: hand the kickoff to the native behavior instead of both
-    // players standing until the ball leaves the center circle.
-    return !isolatedKickoffPhase.ballDeparted&&kickoffThroughSession.event?refuseFirstFoot():false;
+    return !isolatedKickoffPhase.ballDeparted?refuseFirstFoot():false;
   }
   if(self.number==receiver&&(request.kickoffThroughAction==static_cast<int>(WhiteFleetKickoffThroughV8::Action::pursue)
       ||kickoffThroughSession.stage==WhiteFleetKickoffThroughV8::Stage::capture
@@ -483,7 +436,7 @@ bool WhiteFleetStrategyBehaviorControl::applyKickoffThrough(SkillRequest& reques
   unsigned activeFields=0;
   for(unsigned i=0;i<theGameState.ownTeam.playerStates.size();++i)
     if(active(Settings::lowestValidPlayerNumber+static_cast<int>(i)))++activeFields;
-  const bool pairActive=active(params.kicker)&&active(receiver)&&activeFields>=2;
+  const bool pairActive=active(params.kicker)&&active(receiver)&&activeFields==2;
   const Through::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
     theFieldDimensions.xPosOpponentPenaltyArea,theFieldDimensions.yPosLeftTouchline,theFieldDimensions.yPosLeftGoal,theFieldDimensions.yPosLeftPenaltyArea};
   const bool receiverContact=allowKickoffReceiverContactPosture(params,self);
@@ -851,13 +804,7 @@ bool WhiteFleetStrategyBehaviorControl::applyBackfieldOutlet(SkillRequest& reque
   if(!allowed)
   {
     outletPlan=OutletPlan{};
-    // Freeze only when the pose is broken or the ball has not been seen for a
-    // long time (> 650 ms). A slightly stale ball (200-650 ms) must fall back to
-    // the ordinary native decision (pass/clear/dribble) instead of standing still.
-    const bool poseBad=!self.isUpright||!theRobotPose.isFinite()||
-      theRobotPose.quality==RobotPose::poor||theFallDownState.state!=FallDownState::upright;
-    if(context&&(poseBad||theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen)>650))
-    {request=SkillRequest::Builder::stand();return true;} // Unsafe own-half data cannot fall back to a light teammate pass.
+    if(context){request=SkillRequest::Builder::stand();return true;} // Unsafe own-half data cannot fall back to a light teammate pass.
     return false;
   }
   const unsigned now=theFrameInfo.time;
@@ -958,8 +905,7 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
     static_cast<float>(static_cast<int>(theGameState.ownTeam.score)-static_cast<int>(theGameState.opponentTeam.score))};
   const Agent* mate=nullptr;
   for(const Agent& peer:agents)
-    if(peer.number!=self.number&&!peer.isGoalkeeper&&peer.isUpright&&
-       peer.pose.isFinite()&&(!mate||peer.pose.translation.x()>mate->pose.translation.x()))mate=&peer;
+    if(peer.number!=self.number&&!peer.isGoalkeeper&&peer.isUpright)mate=&peer;
   // what an action needs right now; checked every frame, also while a rule is kept running (it may vanish meanwhile)
   const auto ready=[&](const MdfzRule& rule)
   {
@@ -1297,10 +1243,9 @@ bool WhiteFleetStrategyBehaviorControl::applyMatchRestart(SkillRequest& request,
   const bool ownGoalKick=theGameState.isGoalKick()&&theGameState.isForOwnTeam();
   const bool ownKickoff=theGameState.isKickOff()&&theGameState.isForOwnTeam();
   const bool ownRestart=ownGoalKick||ownKickoff;
-  // C15 replaces the generic kickoff completely, including its retired event.
-  // The repaired goal-kick contract and its PLAY confirmation tail stay native.
-  if(WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff)&&
-     (ownKickoff||(!ownGoalKick&&!cornerPlan.goalKick)))
+  // Class base (V2.1 play): the kick-off is never a pass play (no corner plan, no C15, no
+  // autonomous kick-off). The repaired goal-kick contract and its PLAY confirmation tail stay.
+  if(ownKickoff||(!ownGoalKick&&!cornerPlan.goalKick))
   {cornerPlan=CornerPlan{};return false;}
   if(keeper&&(ownKickoff||(!ownGoalKick&&(!cornerPlan.started||!cornerPlan.goalKick))))
   {cornerPlan=CornerPlan{};return false;} // The keeper does not own the field-player kickoff contract.

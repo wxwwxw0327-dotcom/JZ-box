@@ -8,8 +8,9 @@
  */
 namespace WhiteFleetC15KickoffSwitch
 {
+  // Class base (V2.1 play): the C15 kick-off pass play is off, whatever the configuration says.
   inline bool enabled(bool configured)
-  {return WhiteFleetMatchTacticalRepair::enabled(configured);}
+  {(void)configured;return false;}
   inline WhiteFleetKickoffThroughV8::Params throughParams(bool early=false,bool restore=false,bool adaptive=false,bool inside=false,bool race=false)
   {
     WhiteFleetKickoffThroughV8::Params p;

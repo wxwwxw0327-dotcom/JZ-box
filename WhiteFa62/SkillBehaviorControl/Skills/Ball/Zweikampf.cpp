@@ -1153,7 +1153,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     bool obstacleWallBehindBall = false;
     for(const SectorWheel::Sector& sector : kickAngles)
     {
-      if(sector.angleRange.isInside((leftAngleRangeBallToOpponent.max + leftAngleRangeBallToOpponent.min) * 0.5f) &&
+      if(sector.angleRange.isInside((leftAngleRangeBallToOpponent.max - leftAngleRangeBallToOpponent.max) * 0.5f) &&
          sector.type == SectorWheel::Sector::obstacle)
       {
         obstacleWallBehindBall = sector.distance -
@@ -1473,7 +1473,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     {
       const Rangef ttrbRange(0.f, 1.f);
       const float ballVelocityFactor = mapToRange(theFieldBall.positionRelative.norm(), ballPositionInterpolationRange.min, ballPositionInterpolationRange.max, 0.f, 1.f);
-      useBallPositionRelative = (1.f - ballVelocityFactor) * theFieldBall.positionRelative + ballVelocityFactor * theFieldBall.endPositionRelative;
+      useBallPositionRelative = (1.f - ballVelocityFactor) * theFieldBall.positionRelative + ballVelocityFactor * theFieldBall.positionRelative;
       useBallPositionInField = theRobotPose * useBallPositionRelative;
       useBallPositionInField.x() = ballClipX.limit(useBallPositionInField.x());
       useBallPositionInField.y() = ballClipY.limit(useBallPositionInField.y());
@@ -1525,7 +1525,6 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     std::sort(distances.begin(), distances.end(), [](const float& d1, const float& d2) { return d1 < d2; });
 
     // reset and save every unique range
-    checkKickDistancesForFR.clear(); // vars persist across option activations; without clearing the list grows every duel
     float lastRange = -1.f;
     for(float dis : distances)
     {

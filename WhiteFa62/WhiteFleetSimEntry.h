@@ -23,7 +23,7 @@ namespace WhiteFleetSimEntry
  inline void witness(const char* provider)
  {
   const auto k=WhiteFleetSimContext::current();if(!k.simulated)return;
-  std::printf("FLEET_IMPLEMENTATION team=%d player=%d provider=%s head=3d11ae0363afca121f55a586ed7221a71e1c9577\n",k.team,k.player,provider);
+  std::printf("FLEET_IMPLEMENTATION team=%d player=%d provider=%s head=018481c2bcc05d7e813067332d5919050a55f42f\n",k.team,k.player,provider);
   std::printf("FLEET_SIM_PROFILE team=%d player=%d slot=%u v21=%d hot=%d reacquire=%d log_gaze=%d goalkick=%d physical_body_authority=%d official_f1=%d remote_owner=%d\n",k.team,k.player,WhiteFleetSimContext::index(),WhiteFleetK1V21MatchProfile::enabled(),WhiteFleetK1HotChase::enabled(),WhiteFleetK1HotChase::reacquireEnabled(),WhiteFleetK1HotChase::logReacquireEnabled(),WhiteFleetOpponentGoalKickGuard::enabled(),WhiteFleetBoosterMatchSafety::enabled(),WhiteFleetBoosterOfficialLiveTest::enabled(),WhiteFleetBoosterRemoteStand::enabled());std::fflush(stdout);
  }
 #ifndef FLEET_SCOPE_TEST

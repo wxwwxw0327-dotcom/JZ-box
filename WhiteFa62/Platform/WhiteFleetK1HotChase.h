@@ -22,7 +22,8 @@ namespace WhiteFleetK1HotChase
     { return WhiteFleetSimContext::storage<std::atomic<bool>,109>(); }
   }
   inline void enable() noexcept {detail::storage().store(true, std::memory_order_release);}
-  inline bool enabled() noexcept {return detail::storage().load(std::memory_order_acquire);}
+  // Class base (V2.1 play): hot chase and post-kick reacquire are off, whoever enabled them.
+  inline bool enabled() noexcept {return false;}
   inline void enableReacquire() noexcept {detail::reacquireStorage().store(true, std::memory_order_release);}
   inline bool reacquireEnabled() noexcept {return enabled() && detail::reacquireStorage().load(std::memory_order_acquire);}
   inline void enableLogReacquire() noexcept {detail::logReacquireStorage().store(true, std::memory_order_release);}
