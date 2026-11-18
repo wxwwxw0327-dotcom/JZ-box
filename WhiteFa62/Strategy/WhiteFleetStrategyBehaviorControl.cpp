@@ -83,6 +83,7 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     {
       "ball shoot if oppGoalDist<3.5 oppBallDist>0.6",  // point-blank in a crowded box: shoot
       "ball shoot if oppGoalDist<5.5 oppBallDist>0.8",  // in front of the opponent box with space: shoot
+      "ball shoot if oppGoalDist<9 oppBallDist>3",     // v30: 对方半场、身边 3m 没人(常常只剩门将): 直接起脚, 不许带球小踢
       "ball clear if ownGoalDist<3.5 oppBallDist<1.5", // pressed in the own third: strong clear upfield
       "ball clear if scoreDiff>0 ownGoalDist<3.5",     // leading: no risks in the own third
       "ball pass if oppBallDist<1.2",                  // marked closely: pass to the front-most teammate
