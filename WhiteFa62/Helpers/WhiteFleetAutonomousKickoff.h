@@ -25,10 +25,8 @@ namespace WhiteFleetAutonomousKickoff
    * physical hardware or replace its exact Main identity + F1 permission. */
   inline bool enabled(bool physical,bool guardedPhysical,bool simulated,unsigned team,const char* simulationFlag)
   {
-    // Class base (V2.1 play): no kick-off pass play, whatever the flag or the emulated robot profile says.
-    // The kick-off is the native direct kick again.
-    (void)physical;(void)guardedPhysical;(void)simulated;(void)team;(void)simulationFlag;
-    return false;
+    if(physical)return guardedPhysical;
+    return simulated&&(team==5||team==70)&&simulationFlag&&simulationFlag[0]=='1'&&simulationFlag[1]=='\0';
   }
   struct Intent
   {

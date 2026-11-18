@@ -30,7 +30,6 @@ namespace
 {
   inline bool red2EnhancedRunAllowed()
   {
-    return false; // Class base (V2.1 play): no kick-off receiver, so no special run to a pass landing point.
     return (WhiteFleetSimPhysical::simulated()&&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&
             Global::getSettings().playerNumber==2)||
            (WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver()&&Global::getSettings().playerNumber==2);

@@ -220,22 +220,12 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
            Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE"))
          &&theGameState.state==GameState::ownKickOff&&theGameState.isForOwnTeam())
         DirectKickOff();
-      // Class base: a plain football kick-off. The ball goes to the feet of the nearest field player of the own
-      // team (the native pass skill; the team-mate receives where it stands, nobody runs ahead). Alone, or with no
-      // team-mate known, the native direct kick-off.
-      else if(theGameState.isForOwnTeam())
-      {
-        int mate=-1;float nearest=0.f;
-        for(const auto& t:theGlobalTeammatesModel.teammates)
-        {
-          if(t.playerNumber<Settings::lowestValidPlayerNumber||t.playerNumber>Settings::highestValidPlayerNumber||
-             theGameState.ownTeam.isGoalkeeper(t.playerNumber)||!t.pose.translation.allFinite())continue;
-          const float d=(t.pose.translation-theFieldBall.positionOnField).norm();
-          if(d>500.f&&(mate<0||d<nearest)){mate=t.playerNumber;nearest=d;}
-        }
-        if(mate>0)PassToTeammate({.playerNumber=mate});
-        else DirectKickOff();
-      }
+      // MDFZ 开球: 默认直接大力往前踢 (老版行为). 只有战略明确要求"传向前场队友"时才传.
+      // 平台新基座去掉了 tactical 闸门, 变成"清一色传给最近的队友", 开球等于回传自家半场.
+      else if(theGameState.isForOwnTeam() && theSkillRequest.skill==SkillRequest::pass &&
+              theSkillRequest.passTarget>0 && theSkillRequest.target.translation.allFinite() &&
+              theSkillRequest.target.translation.x()>0.f)
+        PassToTeammate({.playerNumber=theSkillRequest.passTarget});
       else DirectKickOff();
     }
   }

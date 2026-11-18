@@ -22,6 +22,10 @@ WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
   InMapFile stream("rolePlayBall.cfg");
   ASSERT(stream.exists());
   stream >> p;
+  // F1 parameter lab (the platform cfg keeps priority if it is already more aggressive):
+  // shoot earlier -> more goal attempts. One conservative step down from the defaults.
+  p.shootThreshold = std::min(p.shootThreshold, 0.45f);
+  p.riskyShootThreshold = std::min(p.riskyShootThreshold, 0.2f);
 }
 
 void WhiteFleetRolePlayBall::reset()
@@ -66,6 +70,13 @@ WhiteFleetRolePlayBall::SmashOrPassInfo WhiteFleetRolePlayBall::getSmashOrPassIn
 
   theKickAtGoalEvaluation.update();
   float bestActionRating = theKickAtGoalEvaluation.kickInfo.isValid ? theExpectedGoals.getRating(ballPosition, false, false, false) : 0.f;
+  // Close-range shot boost: within 2 m of the ball and 4.5 m of the opponent goal,
+  // with a free goal sector (kickInfo.isValid implies an obstacle-free kick angle),
+  // prefer the immediate shot. The boosted rating flows through the existing
+  // shootThreshold and decisionPenalty/lastPassTarget hysteresis below - no early return.
+  if(self.isUpright && theIndirectKick.allowDirectKick && theKickAtGoalEvaluation.kickInfo.isValid &&
+     self.ballPosition.norm() < 2000.f && (ballPosition - goalPosition).norm() < 4500.f)
+    bestActionRating = std::max(bestActionRating, 1.f);
   float maxPassDistance = p.maxPassDistance;
   float minPassDistance = p.minPassDistance;
   if(!theIndirectKick.allowDirectKick)

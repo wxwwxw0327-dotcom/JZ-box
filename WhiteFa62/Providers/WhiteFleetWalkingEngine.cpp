@@ -145,6 +145,16 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
   ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.x() < fastSpeed.maxSpeed.translation.x());
   ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.translation.y() < fastSpeed.maxSpeed.translation.y());
   ASSERT(configuredParameters.normalWalkSpeed.maxSpeed.rotation < fastSpeed.maxSpeed.rotation);
+
+  // MDFZ: 冲刺档生效证据. 平台日志里搜 MDFZ_SPEED, 数值应当明显大于 walk 配置文件里的原值.
+  std::printf("MDFZ_SPEED fast=%.0f/%.0f normal=%.0f/%.0f back=%.0f rot=%.1fdeg\n",
+              configuredParameters.fastWalkSpeed.maxSpeed.translation.x(),
+              configuredParameters.fastWalkSpeed.maxSpeed.translation.y(),
+              configuredParameters.normalWalkSpeed.maxSpeed.translation.x(),
+              configuredParameters.normalWalkSpeed.maxSpeed.translation.y(),
+              configuredParameters.fastWalkSpeed.maxSpeedBackwards,
+              static_cast<float>(configuredParameters.fastWalkSpeed.maxSpeed.rotation.toDegrees()));
+  std::fflush(stdout);
 }
 
 void WhiteFleetWalkingEngine::resetHistoryData()

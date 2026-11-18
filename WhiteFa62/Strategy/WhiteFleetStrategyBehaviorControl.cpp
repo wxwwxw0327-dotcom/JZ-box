@@ -51,6 +51,14 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     std::printf("MDFZ_FORMATION_CONFIG team=%d enabled=%d followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.enabled, mdfzFormation.followBall);
     std::fflush(stdout);
   }
+  if(!formationCfgFound)
+  {
+    // No workshop formation cfg: activate the ball-oriented default support positioning
+    // (tactic base position shifted towards the ball by followBall, see the header).
+    mdfzFormation.enabled=true;
+    std::printf("MDFZ_FORMATION_DEFAULT team=%d enabled=1 followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.followBall);
+    std::fflush(stdout);
+  }
   // MDFZ arena: a class's own rules (behaviour workshop). The file exists only in that class's scenario copy.
   File rulesFile("mdfzRules.cfg", "r");
   if(rulesFile.exists())
@@ -62,14 +70,6 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     while(std::getline(lines, line) && mdfzRules.rules.size() < 16)
       parseMdfzRuleLine(line);
     std::printf("MDFZ_RULES_CONFIG team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
-    std::fflush(stdout);
-  }
-  if(!formationCfgFound)
-  {
-    // No workshop formation cfg: activate the ball-oriented default support positioning
-    // (tactic base position shifted towards the ball by followBall, see the header).
-    mdfzFormation.enabled=true;
-    std::printf("MDFZ_FORMATION_DEFAULT team=%d enabled=1 followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.followBall);
     std::fflush(stdout);
   }
   // Built-in tactical defaults, used ONLY when the workshop provided no rules.
@@ -458,7 +458,10 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
     // The phase is finished, but a stationary unplayed centre ball must not
     // silently select ordinary pass/clear. A referee context change resets it;
     // trusted actual departure allows normal play, with no stale C15 restart.
-    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)return refuseFirstFoot();
+    // If no contract session was ever attempted (e.g. the partner was penalized),
+    // do not freeze here: fall through to the native kickoff so someone plays the ball.
+    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)
+      return kickoffThroughSession.event?refuseFirstFoot():false;
     return false;
   }
   // Publish only the phase's explicit roles; clear stale ordinary set plays.
@@ -500,7 +503,11 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
         isolatedKickoffPhase.reason,kickoffThroughSession.settleAt!=0);
     std::fflush(stdout); // Read-only first-episode stop observation, no motion/GC change.
     isolatedKickoffPhase.exitReported=true;
-    return !isolatedKickoffPhase.ballDeparted?refuseFirstFoot():false;
+    // Refuse (stand) only if a contract was actually attempted, to protect against
+    // a second touch by the kicker. "pair_unavailable_before_session" never
+    // attempted anything: hand the kickoff to the native behavior instead of both
+    // players standing until the ball leaves the center circle.
+    return !isolatedKickoffPhase.ballDeparted&&kickoffThroughSession.event?refuseFirstFoot():false;
   }
   if(self.number==receiver&&(request.kickoffThroughAction==static_cast<int>(WhiteFleetKickoffThroughV8::Action::pursue)
       ||kickoffThroughSession.stage==WhiteFleetKickoffThroughV8::Stage::capture
@@ -1079,8 +1086,6 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,con
     request.mdfzRule = true;
     return true;
   }
-  // 新基座回归修复: 选传球对象要选"最前面的"队友, 并跳过姿态非有限的队友
-  // (新基座改成了"列表里最后一个"，等于随机，而且可能选中 NaN 姿态的队友)。
   const Agent* mate=nullptr;
   for(const Agent& peer:agents)
     if(peer.number!=self.number&&!peer.isGoalkeeper&&peer.isUpright&&
@@ -1443,9 +1448,10 @@ bool WhiteFleetStrategyBehaviorControl::applyMatchRestart(SkillRequest& request,
   const bool ownGoalKick=theGameState.isGoalKick()&&theGameState.isForOwnTeam();
   const bool ownKickoff=theGameState.isKickOff()&&theGameState.isForOwnTeam();
   const bool ownRestart=ownGoalKick||ownKickoff;
-  // Class base (V2.1 play): the kick-off is never a pass play (no corner plan, no C15, no
-  // autonomous kick-off). The repaired goal-kick contract and its PLAY confirmation tail stay.
-  if(ownKickoff||(!ownGoalKick&&!cornerPlan.goalKick))
+  // C15 replaces the generic kickoff completely, including its retired event.
+  // The repaired goal-kick contract and its PLAY confirmation tail stay native.
+  if(WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff)&&
+     (ownKickoff||(!ownGoalKick&&!cornerPlan.goalKick)))
   {cornerPlan=CornerPlan{};return false;}
   if(keeper&&(ownKickoff||(!ownGoalKick&&(!cornerPlan.started||!cornerPlan.goalKick))))
   {cornerPlan=CornerPlan{};return false;} // The keeper does not own the field-player kickoff contract.
@@ -2130,7 +2136,7 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
   }();
 
   const float circle = theFieldDimensions.centerCircleRadius;
-  const float x = front ? -(circle + 450.f) : -(circle + 3050.f);   // 前锋退到中圈外 450mm 防踩线; 后卫退到中线后 4.05m 便于预判拦截
+  const float x = front ? -(circle + 450.f) : -(circle + 1800.f);   // 前锋贴中圈外 450mm 压对方回传; 后卫只在中线后 1.8m 组成两线紧凑块
   request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), Vector2f(x, 0.f)));
 
   if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
