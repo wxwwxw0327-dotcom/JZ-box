@@ -268,6 +268,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
+  // MDFZ v34: 自家 1/3 区禁止短传, 只许解围或带球. 放在最后一道, 任何上层都改不掉.
+  if(self && !wasPenalized)
+    applyOwnThirdKickSafety(skillRequest, *self);
+
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
@@ -2074,6 +2078,38 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
+}
+
+void WhiteFleetStrategyBehaviorControl::applyOwnThirdKickSafety(SkillRequest& request, const Agent& self)
+{
+  // 只在真正的 PLAYING 生效: 开球/任意球/球门球这些定位球有自己的出球逻辑, 不干预.
+  if(!theGameState.isPlaying() || theGameState.stopped || theGameState.playerState != GameState::active)
+    return;
+  if(self.isGoalkeeper || !Role::isActiveRole(self.role))
+    return;                                              // 只约束正在处理球的人
+  if(request.restartPassRequired || request.kickoffThrough)
+    return;                                              // 重启契约自己有自己的判断
+  if(request.skill != SkillRequest::pass)
+    return;                                              // 只禁短传; 带球/射门/解围都放行
+  const Vector2f ball = theFieldBall.recentBallPositionOnField();
+  if(!ball.allFinite())
+    return;
+  // 自家 1/3 的边界 = 中线往我方退场地长度的 1/3.
+  const float thirdLength = (theFieldDimensions.xPosOpponentGoalLine - theFieldDimensions.xPosHalfwayLine) / 3.f;
+  const float ownThirdLimit = theFieldDimensions.xPosHalfwayLine - thirdLength;
+  if(ball.x() > ownThirdLimit)
+    return;                                              // 球还不在自家 1/3
+  // 后场短传改解围. 解围是往对方半场的开阔扇区踢, 比被断球的风险低得多.
+  const SkillRequest::Type before = request.skill;
+  request = SkillRequest::Builder::clear();
+  ++ownThirdBlocks;
+  if(theFrameInfo.getTimeSince(lastOwnThirdLog) >= 2000)
+  {
+    lastOwnThirdLog = theFrameInfo.time;
+    std::printf("MDFZ_OWNTHIRD self=%d ball=%.0f,%.0f limit=%.0f was=%d blocks=%u\n",
+                self.number, ball.x(), ball.y(), ownThirdLimit, static_cast<int>(before), ownThirdBlocks);
+    std::fflush(stdout);
+  }
 }
 
 void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)

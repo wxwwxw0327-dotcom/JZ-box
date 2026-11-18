@@ -194,6 +194,10 @@ private:
   // spots, so both players otherwise stand on their normal base poses and leave the
   // near post / the top of the box empty.
   void applyCornerKickPositions(SkillRequest& request, const Agent& self);
+  // MDFZ v34: 自家 1/3 区禁止短传. 3v3 里丢球权最常见的方式就是后场冒险传球被断,
+  // 一次被断等于一次直接反击. 这条约束只动"后场出球"一个决策, 不碰其他任何判断.
+  void applyOwnThirdKickSafety(SkillRequest& request, const Agent& self);
+  unsigned lastOwnThirdLog = 0, ownThirdBlocks = 0;
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
