@@ -57,9 +57,9 @@ const float sy = 1.20f + (1.45f - 1.20f) * blend;   // 侧向额外增益
 
 `main` 及 `v02`～`v26` 全部建立在旧基座 `3d11ae03` 上，**不能再用**。
 
-新基座与旧基座的差异只有 15 个文件，见 `BASE.json` 与本节对应提交说明。v27 相对新基座只改 10 个文件、约 500 行。
+新基座与旧基座的差异只有 15 个文件，见 `BASE.json` 与本节对应提交说明。v27 相对新基座只改 11 个文件、452 增 / 63 删（约 515 行，平台上限 3000）。
 
-### v27 改了哪 10 个文件
+### v27 改了哪 11 个文件
 
 | 文件 | 改动 |
 |---|---|
@@ -73,6 +73,7 @@ const float sy = 1.20f + (1.45f - 1.20f) * blend;   // 侧向额外增益
 | `SkillBehaviorControl/Skills/Ball/Zweikampf.cpp` | 对手角区间取中点；滚动球按终点插值；每回合清空踢球距离表 |
 | `SkillBehaviorControl/Skills/Output/HeadMotionRequest/HeadControl.cpp` | 球速阈值回到 50 mm/s |
 | `Platform/WhiteFleetK1HotChase.h` | 热追球开关回到真实标志位 |
+| `Strategy/ActiveRoles/WhiteFleetRolePlayBall.cpp` | 恢复 2 m 内 / 门前 4.5 m 的近射加成 |
 
 ### 本地验证
 
