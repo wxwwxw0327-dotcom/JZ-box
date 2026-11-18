@@ -67,7 +67,6 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
   // MDFZ v33: 不再注入内置 12 条默认规则. 实测规则层会把持球球员从"拼抢/原生决策"
   // 拽到"按规则出球", 而 oppBallDist<1.2 这条在 3v3 里几乎常真, 等于每次对抗都强行传球.
   // 工坊里存在 mdfzRules.cfg 时下列代码照旧解析并生效.
-  }
 }
 
 bool WhiteFleetStrategyBehaviorControl::parseMdfzRuleLine(const std::string& line)
