@@ -194,7 +194,8 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
   {
     transition
     {
-      if((theFieldBall.positionOnField - usedGoalPost).squaredNorm() < sqr(goalPostHandlingAreaRadius))
+      // MDFZ v32: 自己罚任意球时不许进"守门柱"状态, 否则球就在脚边也不去罚
+      if(!theGameState.isFreeKick() && (theFieldBall.positionOnField - usedGoalPost).squaredNorm() < sqr(goalPostHandlingAreaRadius))
         goto atOwnGoalPost;
       {Angle d=0_deg;float l=0.f;
        if(theSkillRequest.mdfzRule||stopDuel()||backfield(d,l))

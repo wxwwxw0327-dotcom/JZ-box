@@ -268,7 +268,23 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
           }
         }
 
-        ASSERT(bestOpeningAngle > 0_deg);
+        // MDFZ v32: 全场被挡时原来直接 ASSERT, 平台是断言开的构建就会把机器人进程打死.
+        // 改成退到"剩下最宽的自由扇区", 真全堵住就朝正前方, 至少把球开出去.
+        if(bestOpeningAngle == 0_deg)
+        {
+          for(const SectorWheel::Sector& sector : sectors)
+          {
+            if(sector.type != SectorWheel::Sector::free)
+              continue;
+            if(bestOpeningAngle == 0_deg || sector.angleRange.getSize() > bestOpeningAngle)
+            {
+              bestOpeningAngle = sector.angleRange.getSize();
+              bestTargetAngle = sector.angleRange.getCenter();
+            }
+          }
+          if(bestOpeningAngle == 0_deg)
+            bestTargetAngle = 0_deg;
+        }
 
         targetAngle = bestTargetAngle;
         float kickLength = Vector2f(theFieldDimensions.xPosOpponentGoal / 2.f, theFieldDimensions.yPosLeftTouchline / 2.f).norm();

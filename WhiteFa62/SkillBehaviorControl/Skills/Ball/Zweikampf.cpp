@@ -472,7 +472,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
       const Angle fieldAngle = (theSkillRequestPose.target.translation - useBallPositionInField).angle();
       if(!allowPassAngle.isInside(fieldAngle) &&
          (opponentOnField - useBallPositionInField).squaredNorm() < sqr(obstacleHandling.obstacleMinDistanceForBackPass) &&
-         std::abs(fieldAngle - theRobotPose.rotation) > passOrientation) // the robot must be aligned good enough for the pass already
+         std::abs(Angle::normalize(fieldAngle - theRobotPose.rotation)) > passOrientation) // MDFZ v32: 必须 normalize, 否则 ±180° 附近判反
       {
         ignoreSkillRequestTimestamp = theFrameInfo.time;
         theSkillRequestPose.skill = SkillRequest::shoot;
@@ -1153,7 +1153,8 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     bool obstacleWallBehindBall = false;
     for(const SectorWheel::Sector& sector : kickAngles)
     {
-      if(sector.angleRange.isInside((leftAngleRangeBallToOpponent.max + leftAngleRangeBallToOpponent.min) * 0.5f) &&
+      // MDFZ v32: 对手区间是场系, sector 是机器人系, 必须减去朝向; 原来取 (max+min)/2 少了这一步
+      if(sector.angleRange.isInside(Angle::normalize(leftAngleRangeBallToOpponent.getCenter() - theRobotPose.rotation)) &&
          sector.type == SectorWheel::Sector::obstacle)
       {
         obstacleWallBehindBall = sector.distance -

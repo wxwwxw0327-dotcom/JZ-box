@@ -31,6 +31,7 @@ WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
 void WhiteFleetRolePlayBall::reset()
 {
   lastPassTarget = 0;
+  clearDribbleHysteresis = 0.f; // MDFZ v32: 不把上一个角色的解围/带球偏置带进新局面
 }
 
 void WhiteFleetRolePlayBall::preProcess()

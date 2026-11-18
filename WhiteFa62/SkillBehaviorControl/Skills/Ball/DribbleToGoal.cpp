@@ -32,7 +32,9 @@ option((WhiteFleetSkillBehaviorControl) DribbleToGoal,
     }
     action
     {
-      GoToBallAndDribble({.targetDirection = -theRobotPose.rotation, .alignPrecisely = alignPrecisely});
+      // MDFZ v32: 接近球时就对准"球 -> 对方球门中心", 否则贴边线时会被一路推到角旗区
+      const Angle mdfzGoalDirection = Angle::normalize((Vector2f(theFieldDimensions.xPosOpponentGoalLine, 0.f) - theFieldBall.positionOnField).angle() - theRobotPose.rotation);
+      GoToBallAndDribble({.targetDirection = mdfzGoalDirection, .alignPrecisely = alignPrecisely});
     }
   }
 

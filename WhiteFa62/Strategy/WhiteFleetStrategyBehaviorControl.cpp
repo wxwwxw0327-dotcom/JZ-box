@@ -38,11 +38,9 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
               theFrameInfo, theGameState, theIndirectKick, theTeamBallModel, theWalkingEngineOutput)
 {
   // MDFZ arena: a class's own formation. The file exists only in that class's scenario copy.
-  bool formationCfgFound=false;
   File file("mdfzFormation.cfg", "r");
   if(file.exists())
   {
-    formationCfgFound=true;
     char text[512] = {0};
     file.read(text, std::min<size_t>(file.getSize(), sizeof(text) - 1));
     mdfzFormation.enabled = std::strstr(text, "enabled = true;") != nullptr;
@@ -51,14 +49,8 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     std::printf("MDFZ_FORMATION_CONFIG team=%d enabled=%d followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.enabled, mdfzFormation.followBall);
     std::fflush(stdout);
   }
-  if(!formationCfgFound)
-  {
-    // No workshop formation cfg: activate the ball-oriented default support positioning
-    // (tactic base position shifted towards the ball by followBall, see the header).
-    mdfzFormation.enabled=true;
-    std::printf("MDFZ_FORMATION_DEFAULT team=%d enabled=1 followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.followBall);
-    std::fflush(stdout);
-  }
+  // MDFZ v33: 没有工坊 cfg 时不强行开编队. 3v3 实测: 编队层 + 规则层一起上是负收益,
+  // 接应球员被拉到固定点位反而不如原生战术的即时判断. 工坊里自己写了 cfg 仍然照常生效.
   // MDFZ arena: a class's own rules (behaviour workshop). The file exists only in that class's scenario copy.
   File rulesFile("mdfzRules.cfg", "r");
   if(rulesFile.exists())
@@ -72,33 +64,9 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
     std::printf("MDFZ_RULES_CONFIG team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
     std::fflush(stdout);
   }
-  // Built-in tactical defaults, used ONLY when the workshop provided no rules.
-  // They run through the exact same parser and engine as mdfzRules.cfg, so a
-  // workshop cfg keeps full priority and can override these at any time.
-  // Semantics: first matching rule wins; a rule that fired keeps running for 1 s
-  // (anti-flicker); no match falls through to the native behavior.
-  if(mdfzRules.rules.empty())
-  {
-    static const char* const defaults[] =
-    {
-      "ball shoot if oppGoalDist<3.5 oppBallDist>0.6",  // point-blank in a crowded box: shoot
-      "ball shoot if oppGoalDist<5.5 oppBallDist>0.8",  // in front of the opponent box with space: shoot
-      "ball shoot if oppGoalDist<9 oppBallDist>3",     // v30: 对方半场、身边 3m 没人(常常只剩门将): 直接起脚, 不许带球小踢
-      "ball clear if ownGoalDist<3.5 oppBallDist<1.5", // pressed in the own third: strong clear upfield
-      "ball clear if scoreDiff>0 ownGoalDist<3.5",     // leading: no risks in the own third
-      "ball pass if oppBallDist<1.2",                  // marked closely: pass to the front-most teammate
-      "ball dribble if scoreDiff<0 oppBallDist>1.2",   // behind: keep advancing under moderate pressure
-      "ball dribble if oppBallDist>1.8",               // free field: carry the ball forward
-      "support guard if ballX<-3",                     // ball deep in the own half: cover goal-side
-      "support follow 0.5 if scoreDiff<0",             // behind: hug the play and push up (v29: 0.8->0.5 提高防线)
-      "support mark if scoreDiff>0",                   // leading: mark the most dangerous opponent
-      "support follow 0.5 if absBallY>2.5",            // ball on the wing: v29 不再退 2m, 贴中线守边路
-      "support follow 1 if ballX>0.5",                 // ball in the opponent half: push up behind the ball
-    };
-    for(const char* const rule : defaults)
-      parseMdfzRuleLine(rule);
-    std::printf("MDFZ_RULES_DEFAULTS team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
-    std::fflush(stdout);
+  // MDFZ v33: 不再注入内置 12 条默认规则. 实测规则层会把持球球员从"拼抢/原生决策"
+  // 拽到"按规则出球", 而 oppBallDist<1.2 这条在 3v3 里几乎常真, 等于每次对抗都强行传球.
+  // 工坊里存在 mdfzRules.cfg 时下列代码照旧解析并生效.
   }
 }
 
@@ -298,13 +266,8 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     }
   }
 
-  // MDFZ: opponent kick-off step-back (last layer, so nothing above it overrides the offset).
-  if(self && !wasPenalized)
-    applyOpponentKickOffStepBack(skillRequest, *self);
-
-  // MDFZ: corner-kick positioning, same last-layer slot.
-  if(self && !wasPenalized)
-    applyCornerKickPositions(skillRequest, *self);
+  // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
+  // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
   theBehavior.postProcess();
 
@@ -1198,21 +1161,7 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzFormation(SkillRequest& request
   const Vector2f ball=theFieldBall.recentBallPositionOnField();
   Vector2f target=self.baseTranslation;
   if(ball.allFinite())target+=mdfzFormation.followBall*(ball-self.baseTranslation);
-  // ===================== MDFZ v29: 第二人贴中线 =====================
-  // 平台新版把对方开球改成了"传给最近的队友"(短传), 我们原来"前锋贴中圈+后卫深退"
-  // 的两线防守拿不到球: 球不会飞过来, 对方是带着球往我们半场推.
-  // 所以第二人不许再深退, 固定站在中线后 300mm, 横向守自己那一侧(最多向球漂一半),
-  // 任务是拦对方接球队员的第一脚突破. 只有球真的被打到中线后面时才按球回撤.
-  {
-    const float holdLine = theFieldDimensions.xPosHalfwayLine - 300.f; // 中线后 300mm
-    float x = std::max(target.x(), holdLine);                          // 默认钉在中线后 300mm (更深的基点一律抬到线上)
-    if(ball.allFinite() && ball.x() < holdLine)                        // 球已经到中线后面
-      x = std::min(x, ball.x() - 800.f);                               // 退到球后方 0.8m, 保持球门侧
-    target.x() = x;
-    if(ball.allFinite() && self.baseTranslation.allFinite())
-      target.y() = self.baseTranslation.y() + 0.5f * (ball.y() - self.baseTranslation.y()); // 守自己一侧
-  }
-  // =================== MDFZ v29 END ===================
+  // MDFZ v33: 贴中线站位停用(实测负收益). 这一段留空, 需要时把 v29 的代码贴回来即可.
   target.x()=std::max(theFieldDimensions.xPosOwnGoalArea+300.f,std::min(theFieldDimensions.xPosOpponentGoalLine-300.f,target.x()));
   target.y()=std::max(theFieldDimensions.yPosRightTouchline+300.f,std::min(theFieldDimensions.yPosLeftTouchline-300.f,target.y()));
   const Angle facing=Angle(ball.allFinite()?(ball-target).angle():0.f);

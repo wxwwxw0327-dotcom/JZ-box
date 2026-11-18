@@ -248,7 +248,9 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
   const auto scaleKickStrength = [&](float& kickLength)
   {
     const float upperKickLength = std::max(forcedMinimalPassKickLength, 3.f * kickLength);
-    const Angle interceptError = Angle::normalize((teammate->pose.translation - theFieldBall.positionRelative).angle() - (lastTargetEvaluation.bestShiftedTargetOnField - theFieldBall.positionRelative).angle());
+    // MDFZ v32: 三处必须同坐标系. 原来位置用 positionRelative(机器人系), 目标点用 *_OnField(场系),
+    // 只有机器人朝向正好为 0 时才碰巧正确, 否则 kickLength 缩放的依据整个是错的.
+    const Angle interceptError = Angle::normalize((teammate->pose.translation - theFieldBall.positionOnField).angle() - (lastTargetEvaluation.bestShiftedTargetOnField - theFieldBall.positionOnField).angle());
     return mapToRange(std::abs(interceptError / 15_deg), 0.f, 1.f, upperKickLength, kickLength);
   };
 
