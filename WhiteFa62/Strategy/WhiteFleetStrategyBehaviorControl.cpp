@@ -89,9 +89,9 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
       "ball dribble if scoreDiff<0 oppBallDist>1.2",   // behind: keep advancing under moderate pressure
       "ball dribble if oppBallDist>1.8",               // free field: carry the ball forward
       "support guard if ballX<-3",                     // ball deep in the own half: cover goal-side
-      "support follow 0.8 if scoreDiff<0",             // behind: hug the play and push up
+      "support follow 0.5 if scoreDiff<0",             // behind: hug the play and push up (v29: 0.8->0.5 提高防线)
       "support mark if scoreDiff>0",                   // leading: mark the most dangerous opponent
-      "support follow 2 if absBallY>2.5",              // ball on the wing: support behind on the wing line
+      "support follow 0.5 if absBallY>2.5",            // ball on the wing: v29 不再退 2m, 贴中线守边路
       "support follow 1 if ballX>0.5",                 // ball in the opponent half: push up behind the ball
     };
     for(const char* const rule : defaults)
@@ -1197,6 +1197,21 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzFormation(SkillRequest& request
   const Vector2f ball=theFieldBall.recentBallPositionOnField();
   Vector2f target=self.baseTranslation;
   if(ball.allFinite())target+=mdfzFormation.followBall*(ball-self.baseTranslation);
+  // ===================== MDFZ v29: 第二人贴中线 =====================
+  // 平台新版把对方开球改成了"传给最近的队友"(短传), 我们原来"前锋贴中圈+后卫深退"
+  // 的两线防守拿不到球: 球不会飞过来, 对方是带着球往我们半场推.
+  // 所以第二人不许再深退, 固定站在中线后 300mm, 横向守自己那一侧(最多向球漂一半),
+  // 任务是拦对方接球队员的第一脚突破. 只有球真的被打到中线后面时才按球回撤.
+  {
+    const float holdLine = theFieldDimensions.xPosHalfwayLine - 300.f; // 中线后 300mm
+    float x = std::max(target.x(), holdLine);                          // 默认钉在中线后 300mm (更深的基点一律抬到线上)
+    if(ball.allFinite() && ball.x() < holdLine)                        // 球已经到中线后面
+      x = std::min(x, ball.x() - 800.f);                               // 退到球后方 0.8m, 保持球门侧
+    target.x() = x;
+    if(ball.allFinite() && self.baseTranslation.allFinite())
+      target.y() = self.baseTranslation.y() + 0.5f * (ball.y() - self.baseTranslation.y()); // 守自己一侧
+  }
+  // =================== MDFZ v29 END ===================
   target.x()=std::max(theFieldDimensions.xPosOwnGoalArea+300.f,std::min(theFieldDimensions.xPosOpponentGoalLine-300.f,target.x()));
   target.y()=std::max(theFieldDimensions.yPosRightTouchline+300.f,std::min(theFieldDimensions.yPosLeftTouchline-300.f,target.y()));
   const Angle facing=Angle(ball.allFinite()?(ball-target).angle():0.f);
@@ -1205,8 +1220,9 @@ bool WhiteFleetStrategyBehaviorControl::applyMdfzFormation(SkillRequest& request
   if(theFrameInfo.getTimeSince(mdfzFormation.lastLog)>=1000)
   {
     mdfzFormation.lastLog=now;
-    std::printf("MDFZ_FORMATION self=%d tactic=%s base=%.0f,%.0f target=%.0f,%.0f pose=%.0f,%.0f\n",self.number,
-      TypeRegistry::getEnumName(self.acceptedTactic),self.baseTranslation.x(),self.baseTranslation.y(),target.x(),target.y(),
+    std::printf("MDFZ_FORMATION self=%d tactic=%s base=%.0f,%.0f ball=%.0f,%.0f target=%.0f,%.0f pose=%.0f,%.0f\n",self.number,
+      TypeRegistry::getEnumName(self.acceptedTactic),self.baseTranslation.x(),self.baseTranslation.y(),
+      ball.allFinite()?ball.x():0.f,ball.allFinite()?ball.y():0.f,target.x(),target.y(),
       theRobotPose.translation.x(),theRobotPose.translation.y());
   }
   return true;
@@ -2135,17 +2151,21 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillReques
     return self.baseTranslation.allFinite() && otherX < 1e8f && self.baseTranslation.x() > otherX;
   }();
 
+  // v29: 对方开球现在是短传给最近队友, 不再是长传冲我们半场. 深退等于白送空间.
+  // 改成两个人一起贴中线: 一个顶在圈外压出球线路, 一个在中线后 300mm 守自己那一侧.
   const float circle = theFieldDimensions.centerCircleRadius;
-  const float x = front ? -(circle + 450.f) : -(circle + 1800.f);   // 前锋贴中圈外 450mm 压对方回传; 后卫只在中线后 1.8m 组成两线紧凑块
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), Vector2f(x, 0.f)));
+  const float side = (self.baseTranslation.allFinite() && self.baseTranslation.y() < 0.f) ? -1.f : 1.f;
+  const Vector2f slot = front ? Vector2f(-(circle + 450.f), 0.f)
+                              : Vector2f(theFieldDimensions.xPosHalfwayLine - 300.f, side * 1800.f);
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), slot));
 
   if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
   {
     lastKickOffLog = theFrameInfo.time;
     lastKickOffLoggedState = state;
-    std::printf("MDFZ_KICKOFF_LINE team=%d self=%d state=%d num=%d front=%d x=%.0f skill=%d pos=%d\n",
+    std::printf("MDFZ_KICKOFF_LINE team=%d self=%d state=%d num=%d front=%d slot=%.0f,%.0f skill=%d pos=%d\n",
                 Global::getSettings().teamNumber, self.number, static_cast<int>(state), self.number,
-                front ? 1 : 0, x, static_cast<int>(request.skill), static_cast<int>(self.position));
+                front ? 1 : 0, slot.x(), slot.y(), static_cast<int>(request.skill), static_cast<int>(self.position));
     std::fflush(stdout);
   }
 }
