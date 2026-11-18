@@ -112,3 +112,31 @@ const float sy = 1.20f + (1.45f - 1.20f) * blend;   // 侧向额外增益
 编译 `BUILD_OK` + 3v3 跑通：`MDFZ_SPEED fast=2400/1800 normal=2376/1782`、
 `MDFZ_RULES_DEFAULTS`、`MDFZ_RULE`、`MDFZ_RESTDEF`、`MDFZ_KICKOFF_LINE`、`MDFZ_PASSGATE`、
 `MDFZ_SHOTRANGE` 全部出现。
+
+## v29：第二人贴中线（当前主用）
+
+### 站位规则
+
+非持球球员（"后面那台"）的编队目标改为：
+
+```
+x = max(编队算出来的 x, 中线 - 300mm)          // 不许深退, 钉在中线后 300mm
+if 球的 x < 该线:  x = min(x, 球.x - 800)      // 球被打到线后, 退到球门侧 0.8m
+y = 自己基点 y + 0.5 * (球 y - 自己基点 y)      // 守自己那一侧, 最多向球漂一半
+```
+
+对方开球时的两人槽位：
+
+| 角色 | 旧（v28） | v29 |
+|---|---|---|
+| 顶出去的那台 | `(-(circle+450), 0)` | `(-(circle+450), 0)` 不变 |
+| 守线的那台 | `(-(circle+1800), 0)` ≈ 中线后 3.3 m | `(中线-300, ±1800)` |
+
+两条内置规则也一起抬高，避免规则层把第二人重新拉深：
+
+| 规则 | 旧 | v29 |
+|---|---|---|
+| `support follow 0.8 if scoreDiff<0` | 落后时退到球后 0.8 m | `follow 0.5` |
+| `support follow 2 if absBallY>2.5` | 边路球退 2 m | `follow 0.5` |
+
+`support guard if ballX<-3` 保留：球真进我方 3 m 内时仍然要回门侧。
