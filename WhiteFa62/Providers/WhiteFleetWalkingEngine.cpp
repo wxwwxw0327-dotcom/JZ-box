@@ -241,6 +241,32 @@ void WhiteFleetWalkingEngine::update(WalkStepData& walkStepData)
   WhiteFleetSimEntry::activate();
   static thread_local bool fleetProviderSeen=false;
   if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetWalkingEngine");fleetProviderSeen=true;}
+  // MDFZ: 开球后 20 秒冲刺窗口. 从上一次"开球状态"切到 playing 的那一刻开始计时;
+  // 窗口内步长包络 ×1.15(前后与左右一起), 20 秒后自动回到常规值.
+  {
+    const GameState::State prev = mdfzPrevState;
+    mdfzPrevState = theGameState.state;
+    const bool wasKickoff = prev == GameState::setupOwnKickOff || prev == GameState::waitForOwnKickOff ||
+                            prev == GameState::ownKickOff || prev == GameState::setupOpponentKickOff ||
+                            prev == GameState::waitForOpponentKickOff || prev == GameState::opponentKickOff;
+    if(wasKickoff && theGameState.isPlaying())
+    {
+      mdfzBurstStart = theFrameInfo.time;
+      std::printf("MDFZ_BURST start team=%d player=%d boost=%.2f window_ms=%u\n",
+                  Global::getSettings().teamNumber, Global::getSettings().playerNumber,
+                  mdfzBurstBoost, mdfzBurstWindow);
+      std::fflush(stdout);
+    }
+    const bool wasBurst = mdfzBurst;
+    mdfzBurst = mdfzBurstStart > 0 && theFrameInfo.time >= mdfzBurstStart &&
+                theFrameInfo.time - mdfzBurstStart < mdfzBurstWindow;
+    if(wasBurst && !mdfzBurst)
+    {
+      std::printf("MDFZ_BURST end team=%d player=%d now=%u\n",
+                  Global::getSettings().teamNumber, Global::getSettings().playerNumber, theFrameInfo.time);
+      std::fflush(stdout);
+    }
+  }
   walkStepData.updateCounter = [&walkStepData](const bool)
   {
     walkStepData.usedPredictedSwitch = 0; // Unused
@@ -640,8 +666,14 @@ void WhiteFleetWalkingEngine::filterTranslationPolygon(std::vector<Vector2f>& po
 void WhiteFleetWalkingEngine::generateTranslationPolygon(std::vector<Vector2f>& polygon, const Vector2f& backRight, const Vector2f& frontLeft, const bool useMaxPossibleStepSize)
 {
   ASSERT(!translationPolygon.empty());
-  const std::vector<Vector2f>& original = useMaxPossibleStepSize ? translationPolygonMaxPossible : translationPolygon;
-  ASSERT(original.size() == 8);
+  const std::vector<Vector2f>& basePolygon = useMaxPossibleStepSize ? translationPolygonMaxPossible : translationPolygon;
+  ASSERT(basePolygon.size() == 8);
+  // MDFZ: 开球后 20 秒冲刺窗口 —— 允许的步长包络整体放大(前后 x 与左右 y 同时放大).
+  std::vector<Vector2f> boostedPolygon = basePolygon;
+  if(mdfzBurst)
+    for(Vector2f& edge : boostedPolygon)
+      edge *= mdfzBurstBoost;
+  const std::vector<Vector2f>& original = boostedPolygon;
   std::vector<Vector2f> translationPolygonTemp = original;
   for(Vector2f& edge : translationPolygonTemp)
   {

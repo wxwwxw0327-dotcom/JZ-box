@@ -181,6 +181,13 @@ public:
   CompiledNN oldKickPolicy; /**< The compiled neural network for kicking. */
   JointAngles offset;
   unsigned int lastFrameInfo = 0;
+  // MDFZ: 开球后 20 秒冲刺窗口. 从上一次开球状态切换到 playing 起算, 窗口内把
+  // 允许的步长包络整体放大 mdfzBurstBoost 倍(前后 x 与左右 y 同时放大).
+  unsigned int mdfzBurstStart = 0;
+  GameState::State mdfzPrevState = GameState::beforeHalf;
+  bool mdfzBurst = false;
+  float mdfzBurstBoost = 1.15f;
+  unsigned int mdfzBurstWindow = 20000u;
   std::vector<Joints::Joint> boosterJoints;
   std::vector<Joints::Joint> boosterWaistJoints;
 
