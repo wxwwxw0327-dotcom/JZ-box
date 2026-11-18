@@ -112,3 +112,30 @@ const float sy = 1.20f + (1.45f - 1.20f) * blend;   // 侧向额外增益
 编译 `BUILD_OK` + 3v3 跑通：`MDFZ_SPEED fast=2400/1800 normal=2376/1782`、
 `MDFZ_RULES_DEFAULTS`、`MDFZ_RULE`、`MDFZ_RESTDEF`、`MDFZ_KICKOFF_LINE`、`MDFZ_PASSGATE`、
 `MDFZ_SHOTRANGE` 全部出现。
+
+## v29 两个可选分支（都在 v28 之上）
+
+| 分支 | 改动 |
+|---|---|
+| `v29-a-holdline` | **只改站位**：第二人钉在中线后 300 mm、守自己那一侧；对方开球两人一起贴中线；两条 `support follow` 规则从 0.8 / 2.0 抬到 0.5 |
+| `v29-b-holdline-longshot` | v29-a **全部内容** + 远射：门前 9 m 内且射门通道自由（对方半场常常只剩门将）直接起脚，不再回落成带球小踢 |
+
+### v29-a 站位规则
+
+```
+x = max(编队算出来的 x, 中线 - 300mm)          // 不许深退, 钉在中线后 300mm
+if 球的 x < 该线:  x = min(x, 球.x - 800)      // 球被打到线后, 退到球门侧 0.8m
+y = 自己基点 y + 0.5 * (球 y - 自己基点 y)      // 守自己那一侧, 最多向球漂一半
+```
+
+对方开球槽位：`front = (-(circle+450), 0)`，`back = (中线-300, ±1800)`。
+
+日志：`MDFZ_FORMATION ... ball=x,y target=x,y pose=x,y`、`MDFZ_KICKOFF_LINE ... slot=x,y`。
+
+### v29-b 多出来的两处
+
+1. 内置规则新增 `ball shoot if oppGoalDist<9 oppBallDist>3`（排在两条近射规则之后，带球规则之前）。
+2. `WhiteFleetRolePlayBall.cpp` 加远射加成：`kickInfo.isValid && 球在对方半场 && 门前<9m` → 评分拉满 1.0。
+
+**为什么原来不射**：对方半场只剩门将时 `ExpectedGoals` 评分很低，够不到 `shootThreshold`；
+`ball dribble if oppBallDist>1.8` 先命中，于是走进 `DribbleToGoal`——看起来就是一路小踢。
