@@ -166,10 +166,38 @@ private:
   void applyOpponentSidePosition(SkillRequest& request, const Agent& self);
   bool applyMdfzFormation(SkillRequest& request, const Agent& self);
   bool applyMdfzRules(SkillRequest& request, const Agent& self); // MDFZ arena: class rules (mdfzRules.cfg)
+  bool parseMdfzRuleLine(const std::string& line); // MDFZ arena: one rule line of mdfzRules.cfg syntax (shared by workshop file and built-in defaults)
+  // MDFZ arena: automatic situational coach. Reads score difference and remaining
+  // time, and switches the team between protect / balanced / chase behaviour.
+  enum class SituationMode {balanced, protect, chase};
+  SituationMode situationMode = SituationMode::balanced;
+  bool situationEndgame = false;
+  unsigned lastSituationLog = 0, lastRestDefenseLog = 0;
+  float pinScore = 0.f; // 0..1 rolling pressure in our own half (1 s samples, ~15 s memory)
+  unsigned lastPinSample = 0, lastPassGateLog = 0, lastShotRangeLog = 0;
+  unsigned shieldUntil = 0, lastOppScore = 0; // fresh-phase protection after conceding
+  // MDFZ: support-position arbitration. The rest-defense cover, the formation base and
+  // the workshop rules all move the same supporting player. Without a latch they take
+  // turns every frame, and the robot jogs back and forth - which reads as "messy
+  // positioning" as soon as the walking engine is fast enough to show it.
+  bool restDefenseLatched = false;
+  float coverBallYHold = 0.f;
+  unsigned coverBallYSample = 0;
+  void updateSituationMode();
+  bool restDefenseActive() const; // true unless the team is desperately chasing
+  // MDFZ: when the opponent takes a kick-off, the defending side steps back so a ball
+  // driven straight through the middle cannot split the two field players.
+  void applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self);
+  unsigned lastKickOffLog = 0;
+  GameState::State lastKickOffLoggedState = GameState::beforeHalf;
+  // MDFZ: corner-kick positioning for both sides. The stock tactic has no set-piece
+  // spots, so both players otherwise stand on their normal base poses and leave the
+  // near post / the top of the box empty.
+  void applyCornerKickPositions(SkillRequest& request, const Agent& self);
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
-  struct {bool enabled=false;float followBall=.3f;unsigned lastLog=0,lastStats=0;unsigned n[8]={0};} mdfzFormation; // n: applied,notPlaying,keeper,active,setPlay,skill,passTarget,outlet
+  struct {bool enabled=false;float followBall=.4f;unsigned lastLog=0,lastStats=0;unsigned n[8]={0};} mdfzFormation; // n: applied,notPlaying,keeper,active,setPlay,skill,passTarget,outlet
   struct OutletPlan {unsigned born=0,issued=0;int receiver=-1;Vector2f target=Vector2f::Zero();} outletPlan;
   WhiteFleetFleetProgressPolicy::Half supportHalf;
   unsigned lastSupportLog=0,lastOutletLog=0;

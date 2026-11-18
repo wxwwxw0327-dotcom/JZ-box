@@ -26,7 +26,9 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
   fieldBall.endPositionRelative     = BallPhysics::getEndPosition(theBallModel.estimate.position, theBallModel.estimate.velocity, theBallSpecification);
   fieldBall.endPositionOnField      = theRobotPose * fieldBall.endPositionRelative;
   fieldBall.velocityRelative = theBallModel.estimate.velocity;
-  fieldBall.velocityOnField = theRobotPose * fieldBall.velocityRelative;
+  // A velocity must only be rotated, never translated (Pose2f::operator* adds the
+  // robot translation, which polluted the keeper/blockscreen prediction by meters).
+  fieldBall.velocityOnField = fieldBall.velocityRelative.rotated(theRobotPose.rotation);
 
   fieldBall.teamBallIsValid = theTeamBallModel.isValid;
   if(theTeamBallModel.isValid)
@@ -35,8 +37,10 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
     fieldBall.teamPositionRelative    = theRobotPose.inverse() * theTeamBallModel.position;
     fieldBall.teamEndPositionOnField  = BallPhysics::getEndPosition(theTeamBallModel.position, theTeamBallModel.velocity, theBallSpecification);
     fieldBall.teamEndPositionRelative = theRobotPose.inverse() * fieldBall.teamEndPositionOnField;
-    fieldBall.teamVelocityOnField = theRobotPose.inverse() * fieldBall.teamVelocityRelative;
-    fieldBall.teamVelocityRelative = theTeamBallModel.velocity;
+    // theTeamBallModel.velocity is already in field coordinates; the relative copy
+    // only needs the inverse rotation (was: inverse pose applied to a not-yet-assigned value).
+    fieldBall.teamVelocityOnField = theTeamBallModel.velocity;
+    fieldBall.teamVelocityRelative = theTeamBallModel.velocity.rotated(-theRobotPose.rotation);
   }
 
   fieldBall.timeSinceBallWasSeen = theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen);

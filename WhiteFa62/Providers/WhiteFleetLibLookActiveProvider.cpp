@@ -101,7 +101,10 @@ Angle WhiteFleetLibLookActiveProvider::calculatePan(const bool forceBall)
     }
   }
 
-  if(panReached(basePanAngles[basePanAngleIndex]) && std::abs(basePanAngles[0] - basePanAngles[3]) > 10_deg)
+  // Advance whenever the current pan was reached. The former extra condition
+  // (|p0 - p3| > 10_deg) froze the scan index while walking fast, because the
+  // amplitudes shrink towards minPanMoving (<= 5_deg), leaving the head stuck.
+  if(panReached(basePanAngles[basePanAngleIndex]))
     basePanAngleIndex = (basePanAngleIndex + 1) % basePanAngles.size();
 
   return basePanAngles[basePanAngleIndex];

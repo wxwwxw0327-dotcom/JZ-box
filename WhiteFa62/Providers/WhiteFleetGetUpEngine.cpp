@@ -18,6 +18,10 @@ MAKE_MODULE(WhiteFleetGetUpEngine);
 WhiteFleetGetUpEngine::WhiteFleetGetUpEngine() :
   policy(&Global::getAsmjitRuntime())
 {
+  // The get-up policy was only trained with speed factors 1.5 to 2 (see the
+  // parameter comment). Raise a slower configured factor into that trained range:
+  // every get-up then takes ~30% less time, i.e. less time lost on the ground.
+  speedFactor = std::max(1.5f, std::min(2.f, speedFactor));
   compile(false);
   // https://github.com/BoosterRobotics/booster_gym/blob/main/deploy/configs/T1.yaml#L19
   offset.angles[Joints::lHipPitch] = -0.2f;
