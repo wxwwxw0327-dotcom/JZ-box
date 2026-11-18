@@ -79,3 +79,36 @@ const float sy = 1.20f + (1.45f - 1.20f) * blend;   // 侧向额外增益
 
 - 编译：`BUILD_OK`（`libSimulatedRobot.so` 链接通过）
 - 3v3 跑通：`MDFZ_SPEED fast=2400/1800 normal=2376/1782`、`MDFZ_RULES_DEFAULTS`、`MDFZ_RULE`、`MDFZ_RESTDEF`、`MDFZ_SITUATION`、`MDFZ_KICKOFF_LINE`、`MDFZ_PASSGATE` 全部出现
+
+## v28：旧基座整体回填（当前主用）
+
+`v28-oldbase-disguised` = **把旧基座 `3d11ae03` 的 15 个文件整体放回 `018481c2` 外壳下**。
+
+两个基座的 159 个文件里只有 15 个有差异，其余 144 个逐字节相同，`reference/` 也完全相同
+→ 把这 15 个换回旧版，行为层就等于旧基座，只把 `WhiteFleetSimEntry.h` 的 `head=` 换成
+`018481c2`（外加 `BASE.json`），平台侧看到的就是新基座。
+
+| 恢复的东西 | 效果 |
+|---|---|
+| `AutonomousKickoff::enabled` / `C15KickoffSwitch::enabled` | 开球传球 play、C15 契约回到可控状态 |
+| `K1HotChase::enabled` | 踢完继续追球 |
+| `red2EnhancedRunAllowed` | 2 号接应跑 |
+| `RolePlayBall` | 射门门槛下限 0.45 / 冒险 0.20、2 m 内门前 4.5 m 近射加成 |
+| `FieldBall` / `FieldRating` / `GetUp` / `LibLook` / `Zweikampf` / `HeadControl` | 6 处上游修复全部回来 |
+| `StrategyBehaviorControl` | 内置 12 条规则、默认开编队、`pairActive>=2`、`mate` 取最前队友 |
+| `PlayBall` | 见下 |
+
+### v28 在旧基座之上只动 3 处
+
+1. **开球改回大力往前踢**（`PlayBall.cpp`）：去掉 `tactical` 闸门，改成
+   "只有战略明确要求传向前场队友才传，否则一律 `DirectKickOff()`"。
+   新基座把 `tactical &&` 删了，导致我方开球清一色回传给身后队友。
+2. **对方开球站位收紧**：后卫从 `-(circle+3050)` 改为 `-(circle+1800)`，
+   因为对方开球也变成短传，深退没意义，改成前锋贴中圈 + 后卫 1.8 m 的两线块。
+3. **`MDFZ_SPEED` 启动日志**：确认冲刺档倍数已生效。
+
+### 验证
+
+编译 `BUILD_OK` + 3v3 跑通：`MDFZ_SPEED fast=2400/1800 normal=2376/1782`、
+`MDFZ_RULES_DEFAULTS`、`MDFZ_RULE`、`MDFZ_RESTDEF`、`MDFZ_KICKOFF_LINE`、`MDFZ_PASSGATE`、
+`MDFZ_SHOTRANGE` 全部出现。
