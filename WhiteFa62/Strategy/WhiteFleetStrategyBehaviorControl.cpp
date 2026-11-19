@@ -2082,33 +2082,36 @@ void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 
 void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, const Agent& self)
 {
-  if(!theGameState.isPlaying() || theGameState.stopped || theGameState.playerState != GameState::active)
+  // MDFZ v38: 前场出口 + 就近上抢.
+  //
+  // 关键: 这里**必须**用 `state == GameState::playing`, 不能用 `isPlaying()`.
+  // reference/Representations/Infrastructure/GameState.h:185 里 isPlaying(State) 对
+  // ownKickOff / opponentKickOff / 各类定位球全部返回 true, 用它会让我们在开球时
+  // 把接应球员改成"前场出口", 直接把开球接应点拆掉, 还会在对方开球时跑进对方半场.
+  if(theGameState.state != GameState::playing)
+    return;
+  if(theGameState.stopped || theGameState.playerState != GameState::active)
     return;
   if(self.isGoalkeeper)
     return;
-  // 只用 skill 判断"我在无球跑位": 3v3 里非持球者也可能被分到 active role,
-  // 用 Role::isActiveRole 判断会让整段逻辑永不触发(v36 踩过这个坑).
+  if(request.kickoffThrough || request.restartPassRequired)
+    return;                                  // 重启契约自己做主
+  // 只用 skill 判断"我在无球跑位": 3v3 里非持球者也可能被分到 active role.
   if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
     return;
   if(!theRobotPose.isFinite())
     return;
-  const Vector2f ball = theFieldBall.recentBallPositionOnField();
-  if(!ball.allFinite())
+  // 球必须真的见过. 没见过时 positionOnField 恒为 (0,0) 且 allFinite() 为真,
+  // 会造出一个"幻影中圈球"让两个人同时误判.
+  if(!theFieldBall.ballWasSeen(500) || !theFieldBall.positionOnField.allFinite())
     return;
+  const Vector2f ball = theFieldBall.positionOnField;
 
-  const float outletTriggerX = 500.f;      // 球 x < 500 才算"球在我们半场"
-  const float outletDisableX = -2500.f;    // 球已进我方禁区前沿: 取消, 全员回防
-  const float outletStandX   = 2000.f;     // 出口站位: 对方半场 2m
-  const float outletHalfWidth = 1400.f;    // 横向守自己那一侧
-  if(ball.x() > outletTriggerX)
-    return;
-  if(ball.x() < outletDisableX)
-    return;
-
-  // 离球近的那个去抢球, 只有离球远的才去站出口
+  // 另一名场上球员: 用估计的当前位置, 并且要求数据新鲜
   const Agent* other = nullptr;
   for(const Agent& a : agents)
-    if(a.number != self.number && !a.isGoalkeeper && a.isUpright && a.pose.isFinite())
+    if(a.number != self.number && !a.isGoalkeeper && a.isUpright && a.pose.isFinite() &&
+       TeamActivityPolicy::fresh(theFrameInfo.time, a.timestamp, 1200))
     {
       other = &a;
       break;
@@ -2116,13 +2119,47 @@ void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, c
   if(!other)
     return;
   const Vector2f me = theRobotPose.translation;
-  const Vector2f peer = other->pose.translation;
-  if((ball - me).norm() <= (ball - peer).norm())
-    return;
+  const Vector2f peer = other->currentPosition.allFinite() ? other->currentPosition : other->pose.translation;
 
-  float side = me.y() < 0.f ? -1.f : 1.f;
-  if(self.baseTranslation.allFinite() && std::abs(self.baseTranslation.y()) > 100.f)
-    side = self.baseTranslation.y() < 0.f ? -1.f : 1.f;
+  const float myBallDistance = (ball - me).norm();
+  const float peerBallDistance = (ball - peer).norm();
+  // 300 mm 死区: 两人距离接近时不允许每帧翻转谁去抢谁去站
+  const bool iAmNearer = myBallDistance + 300.f < peerBallDistance;
+
+  // ---------- 就近上抢 (修平台诊断的"离球最近的差 1.8 米") ----------
+  const float pressMinDistance = 1200.f;   // 已经在 1.2 m 内就交给技能层
+  const float pressMaxDistance = 3200.f;   // 超过这个距离就别横跨场地去追
+  const float pressFieldLimit = 500.f;     // 只在我方半场(含中线附近)才主动上抢
+  if(iAmNearer && ball.x() < pressFieldLimit &&
+     myBallDistance > pressMinDistance && myBallDistance < pressMaxDistance)
+  {
+    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - me).angle()), ball));
+    ++pressCount;
+    if(theFrameInfo.getTimeSince(lastOutletTick) >= 4000)
+    {
+      lastOutletTick = theFrameInfo.time;
+      std::printf("MDFZ_PRESS self=%d other=%d ball=%.0f,%.0f myd=%.0f peerd=%.0f count=%u\n",
+                  self.number, other->number, ball.x(), ball.y(), myBallDistance, peerBallDistance, pressCount);
+      std::fflush(stdout);
+    }
+    return;
+  }
+
+  // ---------- 前场出口 ----------
+  const float outletTriggerX = 500.f;      // 球 x < 500 才算"球在我们半场"
+  const float outletDisableX = -2500.f;    // 球进我方禁区前沿: 全员回防
+  const float outletStandX   = 2000.f;     // 出口站位: 对方半场 2 m
+  const float outletHalfWidth = 1400.f;    // 横向
+  const float possessionGuard = 1500.f;    // 球必须在我们脚下(最近的人 1.5 m 内)
+  if(ball.x() > outletTriggerX || ball.x() < outletDisableX)
+    return;
+  if(iAmNearer)
+    return;                                // 我该去抢, 不站出口
+  if(std::min(myBallDistance, peerBallDistance) > possessionGuard)
+    return;                                // 球不在我们脚下: 不往前插, 先守住
+
+  // 两人用号码奇偶分到相反的一侧, 不会挤同一条线
+  const float side = (self.number % 2 == 0) ? -1.f : 1.f;
   Vector2f target(outletStandX, side * outletHalfWidth);
   target.x() = std::max(theFieldDimensions.xPosOwnGoalLine + 600.f,
                         std::min(theFieldDimensions.xPosOpponentGoalLine - 600.f, target.x()));
@@ -2138,90 +2175,4 @@ void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, c
                 me.x(), me.y(), outletCount);
     std::fflush(stdout);
   }
-}
-
-void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)
-{
-  const GameState::State state = theGameState.state;
-  const bool opponentKickOff = state == GameState::setupOpponentKickOff ||
-                               state == GameState::waitForOpponentKickOff ||
-                               state == GameState::opponentKickOff;
-  if(!opponentKickOff || self.isGoalkeeper)
-    return;
-  if(!theRobotPose.translation.allFinite())
-    return;
-
-  // v23: decide front/back from the jersey number and the base poses, NOT from
-  // Tactic::Position. In 3v3 the positions handed out are defenderL / midfielder / forward
-  // depending on the roster, so a position-based test silently skipped one of the two
-  // players and left him standing side-by-side with his team mate.
-  const bool front = self.number == 3 ? true : self.number == 2 ? false : [&]
-  {
-    float otherX = 1e9f;
-    for(const Agent& a : agents)
-      if(a.number != self.number && !a.isGoalkeeper && a.baseTranslation.allFinite())
-        otherX = std::min(otherX, a.baseTranslation.x());
-    return self.baseTranslation.allFinite() && otherX < 1e8f && self.baseTranslation.x() > otherX;
-  }();
-
-  // v29: 对方开球现在是短传给最近队友, 不再是长传冲我们半场. 深退等于白送空间.
-  // 改成两个人一起贴中线: 一个顶在圈外压出球线路, 一个在中线后 300mm 守自己那一侧.
-  const float circle = theFieldDimensions.centerCircleRadius;
-  const float side = (self.baseTranslation.allFinite() && self.baseTranslation.y() < 0.f) ? -1.f : 1.f;
-  const Vector2f slot = front ? Vector2f(-(circle + 450.f), 0.f)
-                              : Vector2f(theFieldDimensions.xPosHalfwayLine - 300.f, side * 1800.f);
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), slot));
-
-  if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
-  {
-    lastKickOffLog = theFrameInfo.time;
-    lastKickOffLoggedState = state;
-    std::printf("MDFZ_KICKOFF_LINE team=%d self=%d state=%d num=%d front=%d slot=%.0f,%.0f skill=%d pos=%d\n",
-                Global::getSettings().teamNumber, self.number, static_cast<int>(state), self.number,
-                front ? 1 : 0, slot.x(), slot.y(), static_cast<int>(request.skill), static_cast<int>(self.position));
-    std::fflush(stdout);
-  }
-}
-
-void WhiteFleetStrategyBehaviorControl::applyCornerKickPositions(SkillRequest& request, const Agent& self)
-{
-  const GameState::State state = theGameState.state;
-  const bool defending = state == GameState::opponentCornerKick;
-  const bool attacking = state == GameState::ownCornerKick;
-  if(!defending && !attacking)
-    return;
-  if(self.isGoalkeeper || request.skill != SkillRequest::walk)
-    return;
-  if(!theFieldBall.positionOnField.allFinite())
-    return;
-
-  const Tactic::Position::Type pos = self.position;
-  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
-                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
-                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
-  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
-                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
-  if(!defender && !forward)
-    return;
-
-  // Ball side: the corner is taken from one touchline, so the near post is on that side.
-  const float side = theFieldBall.positionOnField.y() > 0.f ? 1.f : -1.f;
-  const float goalLine = defending ? theFieldDimensions.xPosOwnGoalLine : theFieldDimensions.xPosOpponentGoalLine;
-  const float dir = defending ? 1.f : -1.f;   // inwards from that goal line
-
-  Vector2f target;
-  if(defending)
-  {
-    // Defender guards the near post, forward covers the top of the box (the man coming
-    // from the centre circle). Three-a-side cannot also mark the taker.
-    target = defender ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                      : Vector2f(goalLine + dir * 2600.f, 0.f);
-  }
-  else
-  {
-    // Attacking: forward attacks the near post, defender stays back for the counter.
-    target = forward ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                     : Vector2f(500.f, 0.f);
-  }
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
 }
