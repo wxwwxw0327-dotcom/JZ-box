@@ -268,6 +268,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
+  // MDFZ v37: 前场常驻出口
+  if(self && !wasPenalized)
+    applyHighOutlet(skillRequest, *self);
+
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
@@ -2074,6 +2078,66 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
+}
+
+void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, const Agent& self)
+{
+  if(!theGameState.isPlaying() || theGameState.stopped || theGameState.playerState != GameState::active)
+    return;
+  if(self.isGoalkeeper)
+    return;
+  // 只用 skill 判断"我在无球跑位": 3v3 里非持球者也可能被分到 active role,
+  // 用 Role::isActiveRole 判断会让整段逻辑永不触发(v36 踩过这个坑).
+  if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
+    return;
+  if(!theRobotPose.isFinite())
+    return;
+  const Vector2f ball = theFieldBall.recentBallPositionOnField();
+  if(!ball.allFinite())
+    return;
+
+  const float outletTriggerX = 500.f;      // 球 x < 500 才算"球在我们半场"
+  const float outletDisableX = -2500.f;    // 球已进我方禁区前沿: 取消, 全员回防
+  const float outletStandX   = 2000.f;     // 出口站位: 对方半场 2m
+  const float outletHalfWidth = 1400.f;    // 横向守自己那一侧
+  if(ball.x() > outletTriggerX)
+    return;
+  if(ball.x() < outletDisableX)
+    return;
+
+  // 离球近的那个去抢球, 只有离球远的才去站出口
+  const Agent* other = nullptr;
+  for(const Agent& a : agents)
+    if(a.number != self.number && !a.isGoalkeeper && a.isUpright && a.pose.isFinite())
+    {
+      other = &a;
+      break;
+    }
+  if(!other)
+    return;
+  const Vector2f me = theRobotPose.translation;
+  const Vector2f peer = other->pose.translation;
+  if((ball - me).norm() <= (ball - peer).norm())
+    return;
+
+  float side = me.y() < 0.f ? -1.f : 1.f;
+  if(self.baseTranslation.allFinite() && std::abs(self.baseTranslation.y()) > 100.f)
+    side = self.baseTranslation.y() < 0.f ? -1.f : 1.f;
+  Vector2f target(outletStandX, side * outletHalfWidth);
+  target.x() = std::max(theFieldDimensions.xPosOwnGoalLine + 600.f,
+                        std::min(theFieldDimensions.xPosOpponentGoalLine - 600.f, target.x()));
+  target.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f,
+                        std::min(theFieldDimensions.yPosLeftTouchline - 300.f, target.y()));
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - target).angle()), target));
+  ++outletCount;
+  if(theFrameInfo.getTimeSince(lastOutletTick) >= 4000)
+  {
+    lastOutletTick = theFrameInfo.time;
+    std::printf("MDFZ_OUTLET self=%d other=%d ball=%.0f,%.0f target=%.0f,%.0f pose=%.0f,%.0f count=%u\n",
+                self.number, other->number, ball.x(), ball.y(), target.x(), target.y(),
+                me.x(), me.y(), outletCount);
+    std::fflush(stdout);
+  }
 }
 
 void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)

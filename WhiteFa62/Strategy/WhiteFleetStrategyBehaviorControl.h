@@ -194,6 +194,12 @@ private:
   // spots, so both players otherwise stand on their normal base poses and leave the
   // near post / the top of the box empty.
   void applyCornerKickPositions(SkillRequest& request, const Agent& self);
+  // MDFZ v37: 前场常驻出口. 录像实测(场地坐标): 我们最前的球员只到 +0.5m(刚过中线),
+  // 对手最前压到 -2.9m(我们半场 2.9m). 球在我们半场时原生战术按球位置整体收缩,
+  // 形成"出不去 -> 球更靠后 -> 更出不去"的死锁. 这条只做一件事:
+  // 保证永远有一名场上球员站在对方半场等着接长传.
+  void applyHighOutlet(SkillRequest& request, const Agent& self);
+  unsigned lastOutletTick = 0, outletCount = 0;
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
