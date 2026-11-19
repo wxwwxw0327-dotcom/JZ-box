@@ -81,8 +81,10 @@ WhiteFleetRolePlayBall::SmashOrPassInfo WhiteFleetRolePlayBall::getSmashOrPassIn
   // v30: 门前 9m 内、射门通道自由(kickInfo.isValid 即"有一条不被挡的射门扇区"),
   // 且球在对方半场 -> 直接起脚. 老问题: 对方半场只剩门将时, ExpectedGoals 评分很低,
   // 达不到 shootThreshold, 于是回落成"带球", 看起来就是一路小踢不射门.
-  if(self.isUpright && theIndirectKick.allowDirectKick && theKickAtGoalEvaluation.kickInfo.isValid &&
-     ballPosition.x() > 0.f && (ballPosition - goalPosition).norm() < 12000.f)  // C1 实验: 9m -> 12m
+  // E1 实验: 停用"球在对方半场就射". 实测 shoot+waitShoot 占 15% 帧, 怀疑中场乱射白送球权.
+  // 注: 这个 9m/12m 门槛本身从来不会生效(对方半场内最远 5408mm), 真正起作用的是"球在对方半场".
+  if(false && self.isUpright && theIndirectKick.allowDirectKick && theKickAtGoalEvaluation.kickInfo.isValid &&
+     ballPosition.x() > 0.f && (ballPosition - goalPosition).norm() < 12000.f)
     bestActionRating = std::max(bestActionRating, 1.f);
   float maxPassDistance = p.maxPassDistance;
   float minPassDistance = p.minPassDistance;
