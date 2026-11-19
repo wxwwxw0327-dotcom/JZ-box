@@ -2135,6 +2135,36 @@ void WhiteFleetStrategyBehaviorControl::applySupportSeparation(SkillRequest& req
                 self.number, other->number, distance, target.x(), target.y(), separateCount);
     std::fflush(stdout);
   }
+  return;
+}
+
+  // ---- v36 纵深分离: 两人不许同深 ----
+  // 录像实测纵深跨度 4.58m(对手 6.60m). 一个人去抢, 另一个必须在球的球门侧 3.5m,
+  // 这样一脚直塞不会同时越过两个人. 只用"球的球门侧"这一个方向, 不引入固定站位.
+  const float depthMinSeparation = 3000.f;   // 两人 |dx| 小于这个就算同深
+  const float depthCoverDistance = 3500.f;   // 退到球往本方球门方向多远
+  if(std::abs(me.x() - peer.x()) >= depthMinSeparation)
+    return;
+  if((ball - me).norm() < separationBallGuard || (ball - peer).norm() < separationBallGuard)
+    return;
+  if((ball - me).norm() < (ball - peer).norm())
+    return;                                  // 离球近的那个继续做原来的事
+  const float goalSide = theFieldDimensions.xPosOwnGoalLine < ball.x() ? -1.f : 1.f;
+  Vector2f cover(ball.x() + goalSide * depthCoverDistance, me.y());
+  cover.x() = std::max(theFieldDimensions.xPosOwnGoalLine + 600.f,
+                       std::min(theFieldDimensions.xPosOpponentGoalLine - 600.f, cover.x()));
+  cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f,
+                       std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));
+  ++depthCount;
+  if(theFrameInfo.getTimeSince(lastDepthLog) >= 2000)
+  {
+    lastDepthLog = theFrameInfo.time;
+    std::printf("MDFZ_DEPTH self=%d other=%d dx=%.0f ball=%.0f cover=%.0f,%.0f count=%u\n",
+                self.number, other->number, std::abs(me.x() - peer.x()), ball.x(),
+                cover.x(), cover.y(), depthCount);
+    std::fflush(stdout);
+  }
 }
 
 void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)

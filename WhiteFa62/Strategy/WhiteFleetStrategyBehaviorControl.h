@@ -196,8 +196,10 @@ private:
   void applyCornerKickPositions(SkillRequest& request, const Agent& self);
   // MDFZ v35: 两名场上球员的最小间距. 录像里反复出现两台挤在同一格,
   // 等于把那一侧整片区域让给对手. 只处理"要撞一起"这一种情况, 不改任何其他决策.
+  // MDFZ v36: 纵深分离 —— 不许两人同深. 录像实测: 三人纵向跨度只有 4.58m,
+  // 对手 6.60m, 等于一脚传球就能同时越过我们两个人.
   void applySupportSeparation(SkillRequest& request, const Agent& self);
-  unsigned lastSeparateLog = 0, separateCount = 0;
+  unsigned lastSeparateLog = 0, separateCount = 0, depthCount = 0, lastDepthLog = 0;
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)
