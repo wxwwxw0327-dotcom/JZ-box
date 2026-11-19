@@ -1289,9 +1289,9 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
         const Vector2f ballToIntersection1 = i1 - useBallPositionInField;
         const Vector2f ballToIntersection2 = i2 - useBallPositionInField;
         // the 5_deg is just a arbitrary number, because the angle to the intersection point is only for a small fraction different to the original kickAngle, resulting from rounding errors.
-        if(std::abs(ballToIntersection1.angle() - (kickAngle + theRobotPose.rotation)) < 5_deg)
+        if(std::abs(Angle::normalize(ballToIntersection1.angle() - (kickAngle + theRobotPose.rotation))) < 5_deg)
           distanceToFieldBorderSquared = ballToIntersection1.squaredNorm() - sqr(100.f); // 100.f safe distance
-        else if(std::abs(ballToIntersection2.angle() - (kickAngle + theRobotPose.rotation)) < 5_deg)
+        else if(std::abs(Angle::normalize(ballToIntersection2.angle() - (kickAngle + theRobotPose.rotation))) < 5_deg)
           distanceToFieldBorderSquared = ballToIntersection2.squaredNorm() - sqr(100.f); // 100.f safe distance
       }
 
@@ -1572,11 +1572,11 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     const Vector2f ballToIntersection2 = i2 - useBallPositionInField;
     // the 5_deg is just a arbitrary number, because the angle to the intersection point is only for a small fraction different to the original kickAngle, resulting from rounding errors.
     float distanceToFieldBorder = 0.f;
-    if(std::abs(ballToIntersection1.angle() - (kickDirection + theRobotPose.rotation)) < 5_deg)
+    if(std::abs(Angle::normalize(ballToIntersection1.angle() - (kickDirection + theRobotPose.rotation))) < 5_deg)
       distanceToFieldBorder = ballToIntersection1.squaredNorm() - sqr(100.f); // 100.f safe distance
-    else if(std::abs(ballToIntersection2.angle() - (kickDirection + theRobotPose.rotation)) < 5_deg)
+    else if(std::abs(Angle::normalize(ballToIntersection2.angle() - (kickDirection + theRobotPose.rotation))) < 5_deg)
       distanceToFieldBorder = ballToIntersection2.squaredNorm() - sqr(100.f); // 100.f safe distance
-    distanceToFieldBorder = std::max(stealKickReplacementParameter.distanceToFieldBorderRange.min, std::sqrt(distanceToFieldBorder) - stealKickReplacementParameter.distanceToFieldBorderRange.max);
+    distanceToFieldBorder = std::max(stealKickReplacementParameter.distanceToFieldBorderRange.min, std::sqrt(std::max(0.f, distanceToFieldBorder)) - stealKickReplacementParameter.distanceToFieldBorderRange.max);
 
     kickRange = std::min(distanceToFieldBorder, mapToRange(useBallPositionInField.x(), theFieldDimensions.centerCircleRadius, theFieldDimensions.xPosOpponentPenaltyArea, std::min(minKickRange.max, theFieldDimensions.xPosOpponentGoalArea - theFieldDimensions.xPosOpponentPenaltyArea * 0.5f), minKickRange.min));
   };

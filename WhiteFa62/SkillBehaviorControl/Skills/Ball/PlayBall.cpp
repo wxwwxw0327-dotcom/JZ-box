@@ -177,6 +177,9 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
   {
     transition
     {
+      // MDFZ v39: 自己罚任意球时必须有出口, 否则球停在我方门柱区时整场卡在这个状态
+      if(theGameState.isFreeKick() && theGameState.isForOwnTeam())
+        goto executeSkillRequest;
       if((theFieldBall.positionOnField - usedGoalPost).squaredNorm() > sqr(goalPostHandlingAreaRadius * goalPostHandlingAreaHysteresisMultiplier))
       {
         if(activateDuel())
@@ -223,6 +226,13 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
         DirectKickOff();
       // MDFZ 开球: 默认直接大力往前踢 (老版行为). 只有战略明确要求"传向前场队友"时才传.
       // 平台新基座去掉了 tactical 闸门, 变成"清一色传给最近的队友", 开球等于回传自家半场.
+      else if(!theGameState.isForOwnTeam())
+      {
+        // MDFZ v39: isKickOff() 不分敌我. 对方开球时绝不能跑去踢那颗球(违规),
+        // 站住看球, 等裁判放行后由正常逻辑接管.
+        LookActive({.withBall=true});
+        Stand();
+      }
       else if(theGameState.isForOwnTeam() && theSkillRequest.skill==SkillRequest::pass &&
               theSkillRequest.passTarget>0 && theSkillRequest.target.translation.allFinite() &&
               theSkillRequest.target.translation.x()>0.f)

@@ -243,7 +243,7 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
     if(!forceSitDown
        && (motionRequest.isWalking() || motionRequest.motion == MotionRequest::stand) // Walk or stand is requested
        && motionRequest.shouldWalkOutOfBallLine // walking out of ball is request
-       && !getUp && newPhase->type != MotionPhase::fall // Robot is upright / not getting up. Fail-safe check
+       && !getUp && newPhase && newPhase->type != MotionPhase::fall // MDFZ v39: 先判空, ASSERT 之前不许解引用
        && (phase->type == MotionPhase::stand || phase->type == MotionPhase::walk)) // Also only if walk engine was last active
     {
       // set new motion phase

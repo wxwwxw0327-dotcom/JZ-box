@@ -199,7 +199,8 @@ private:
   // 形成"出不去 -> 球更靠后 -> 更出不去"的死锁. 这条只做一件事:
   // 保证永远有一名场上球员站在对方半场等着接长传.
   void applyHighOutlet(SkillRequest& request, const Agent& self);
-  unsigned lastOutletTick = 0, outletCount = 0, pressCount = 0;
+  unsigned outletCount = 0, outletToggles = 0, outletSince = 0;
+  bool outletLatched = false;
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};
   struct {std::vector<MdfzRule> rules;int active=-1;unsigned since=0,lastLog=0;unsigned fired[16]={0};} mdfzRules; // MDFZ arena: class formation (mdfzFormation.cfg)

@@ -2082,97 +2082,99 @@ void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 
 void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, const Agent& self)
 {
-  // MDFZ v38: 前场出口 + 就近上抢.
+  // MDFZ v39: 前场常驻出口（按审查意见重写）
   //
-  // 关键: 这里**必须**用 `state == GameState::playing`, 不能用 `isPlaying()`.
-  // reference/Representations/Infrastructure/GameState.h:185 里 isPlaying(State) 对
-  // ownKickOff / opponentKickOff / 各类定位球全部返回 true, 用它会让我们在开球时
-  // 把接应球员改成"前场出口", 直接把开球接应点拆掉, 还会在对方开球时跑进对方半场.
-  if(theGameState.state != GameState::playing)
+  // 目的: 录像实测我们最前的球员只到 +0.52m(刚过中线), 对手压到 -2.86m。
+  // 球在我们半场时原生战术按球位置整体收缩, 形成"出不去 -> 球更靠后 -> 更出不去"的死锁。
+  // 这条只保证一件事: 我们持球时, 永远有一名纯位置角色站在对方半场等着接球。
+
+  // [1] 只让"纯位置角色"去站。playBall / closestToTeamBall / freeKickWall 这些
+  //     active role 虽然 skill 也可能显示 walk, 但它们的 walkTo 是有含义的, 一律不动。
+  if(!Role::isPositionRole(self.role))
     return;
-  if(theGameState.stopped || theGameState.playerState != GameState::active)
+
+  // [2] 只有真正的 PLAYING。不能用 isPlaying(): 它对开球和所有定位球都返回 true。
+  if(theGameState.state != GameState::playing || theGameState.stopped ||
+     theGameState.playerState != GameState::active)
     return;
-  if(self.isGoalkeeper)
+  if(self.isGoalkeeper || !self.isUpright)
     return;
-  if(request.kickoffThrough || request.restartPassRequired)
-    return;                                  // 重启契约自己做主
-  // 只用 skill 判断"我在无球跑位": 3v3 里非持球者也可能被分到 active role.
+  if(!theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor)
+    return;
+
+  // [3] 不覆盖任何"协议请求"和安全冻结
+  if(request.kickoffThrough || request.kickoffThroughRetired || request.restartPassRequired ||
+     request.isolatedKickoffFinished || request.backfieldStrongOutlet || request.mdfzRule)
+    return;
   if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
     return;
-  if(!theRobotPose.isFinite())
-    return;
-  // 球必须真的见过. 没见过时 positionOnField 恒为 (0,0) 且 allFinite() 为真,
-  // 会造出一个"幻影中圈球"让两个人同时误判.
-  if(!theFieldBall.ballWasSeen(500) || !theFieldBall.positionOnField.allFinite())
+
+  // [4] 球必须真的新鲜。没见过时 positionOnField 恒为 (0,0) 且 allFinite() 为真,
+  //     会造出"幻影中圈球"让两个人同时误判。
+  if(!theFieldBall.ballWasSeen(650) || !theFieldBall.positionOnField.allFinite())
     return;
   const Vector2f ball = theFieldBall.positionOnField;
 
-  // 另一名场上球员: 用估计的当前位置, 并且要求数据新鲜
-  const Agent* other = nullptr;
+  // [5] 找最近的那名场上队友: 新鲜 + 位姿有限 + 用传播到当前的估计位置
+  const Agent* peer = nullptr;
+  float peerBallDistance = std::numeric_limits<float>::infinity();
   for(const Agent& a : agents)
-    if(a.number != self.number && !a.isGoalkeeper && a.isUpright && a.pose.isFinite() &&
+    if(a.number != self.number && !a.isGoalkeeper && a.isUpright &&
+       a.pose.isFinite() && a.currentPosition.allFinite() &&
        TeamActivityPolicy::fresh(theFrameInfo.time, a.timestamp, 1200))
     {
-      other = &a;
-      break;
+      const float d = (ball - a.currentPosition).norm();
+      if(d < peerBallDistance)
+      {
+        peerBallDistance = d;
+        peer = &a;
+      }
     }
-  if(!other)
+  if(!peer)
     return;
+
   const Vector2f me = theRobotPose.translation;
-  const Vector2f peer = other->currentPosition.allFinite() ? other->currentPosition : other->pose.translation;
-
   const float myBallDistance = (ball - me).norm();
-  const float peerBallDistance = (ball - peer).norm();
-  // 300 mm 死区: 两人距离接近时不允许每帧翻转谁去抢谁去站
-  const bool iAmNearer = myBallDistance + 300.f < peerBallDistance;
 
-  // ---------- 就近上抢 (修平台诊断的"离球最近的差 1.8 米") ----------
-  const float pressMinDistance = 1200.f;   // 已经在 1.2 m 内就交给技能层
-  const float pressMaxDistance = 3200.f;   // 超过这个距离就别横跨场地去追
-  const float pressFieldLimit = 500.f;     // 只在我方半场(含中线附近)才主动上抢
-  if(iAmNearer && ball.x() < pressFieldLimit &&
-     myBallDistance > pressMinDistance && myBallDistance < pressMaxDistance)
+  // [6] 球必须在脚下, 而且不能正朝我们球门滚; 领先/末段也不送人上去
+  if(std::min(myBallDistance, peerBallDistance) > 900.f)
+    return;
+  if(theFieldBall.velocityOnField.allFinite() && theFieldBall.velocityOnField.x() < -800.f)
+    return;
+  if(situationMode == SituationMode::protect)
+    return;
+
+  // [7] 滞回: 触发 200 / 释放 900, 与 rest defense 用同一套写法, 防止球在边界反复穿越时每帧抖
+  if(!outletLatched)
   {
-    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - me).angle()), ball));
-    ++pressCount;
-    if(theFrameInfo.getTimeSince(lastOutletTick) >= 4000)
-    {
-      lastOutletTick = theFrameInfo.time;
-      std::printf("MDFZ_PRESS self=%d other=%d ball=%.0f,%.0f myd=%.0f peerd=%.0f count=%u\n",
-                  self.number, other->number, ball.x(), ball.y(), myBallDistance, peerBallDistance, pressCount);
-      std::fflush(stdout);
-    }
+    // 进入必须同时满足上下界: 只判上界会让"球已经到我方禁区"时也进入, 下一帧立刻退出, 每帧抖
+    if(ball.x() > 200.f || ball.x() < -2800.f)
+      return;
+    outletLatched = true;
+    outletSince = theFrameInfo.time;
+    std::printf("MDFZ_OUTLET begin self=%d role=%s ball=%.0f,%.0f d_self=%.0f d_peer=%.0f\n",
+                self.number, TypeRegistry::getEnumName(self.role), ball.x(), ball.y(),
+                myBallDistance, peerBallDistance);
+    std::fflush(stdout);
+  }
+  else if((ball.x() > 900.f || ball.x() < -2800.f) && theFrameInfo.getTimeSince(outletSince) > 800u)
+  {
+    // 释放额外加 800ms 驻留, 防球在边界来回穿越时每帧翻转
+    outletLatched = false;
+    std::printf("MDFZ_OUTLET end self=%d ball=%.0f toggles=%u\n", self.number, ball.x(), ++outletToggles);
+    std::fflush(stdout);
     return;
   }
 
-  // ---------- 前场出口 ----------
-  const float outletTriggerX = 500.f;      // 球 x < 500 才算"球在我们半场"
-  const float outletDisableX = -2500.f;    // 球进我方禁区前沿: 全员回防
-  const float outletStandX   = 2000.f;     // 出口站位: 对方半场 2 m
-  const float outletHalfWidth = 1400.f;    // 横向
-  const float possessionGuard = 1500.f;    // 球必须在我们脚下(最近的人 1.5 m 内)
-  if(ball.x() > outletTriggerX || ball.x() < outletDisableX)
-    return;
-  if(iAmNearer)
-    return;                                // 我该去抢, 不站出口
-  if(std::min(myBallDistance, peerBallDistance) > possessionGuard)
-    return;                                // 球不在我们脚下: 不往前插, 先守住
-
-  // 两人用号码奇偶分到相反的一侧, 不会挤同一条线
-  const float side = (self.number % 2 == 0) ? -1.f : 1.f;
-  Vector2f target(outletStandX, side * outletHalfWidth);
+  // [8] 站位用场地相对量: 对方球门线往回收 2500mm; 横向站到球的另一侧, 拉开传球线路
+  const float standX = theFieldDimensions.xPosOpponentGoalLine - 2500.f;
+  const float side = ball.y() > 0.f ? -1.f : 1.f;
+  Vector2f target(standX, side * (theFieldDimensions.yPosLeftTouchline - 1600.f));
   target.x() = std::max(theFieldDimensions.xPosOwnGoalLine + 600.f,
                         std::min(theFieldDimensions.xPosOpponentGoalLine - 600.f, target.x()));
   target.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f,
                         std::min(theFieldDimensions.yPosLeftTouchline - 300.f, target.y()));
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - target).angle()), target));
+  // 朝"要走的方向", 不朝球: 朝球会让位移变成侧向/后退, 2.4m/s 的前向速度吃不到
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle((target - me).angle()), target));
   ++outletCount;
-  if(theFrameInfo.getTimeSince(lastOutletTick) >= 4000)
-  {
-    lastOutletTick = theFrameInfo.time;
-    std::printf("MDFZ_OUTLET self=%d other=%d ball=%.0f,%.0f target=%.0f,%.0f pose=%.0f,%.0f count=%u\n",
-                self.number, other->number, ball.x(), ball.y(), target.x(), target.y(),
-                me.x(), me.y(), outletCount);
-    std::fflush(stdout);
-  }
 }

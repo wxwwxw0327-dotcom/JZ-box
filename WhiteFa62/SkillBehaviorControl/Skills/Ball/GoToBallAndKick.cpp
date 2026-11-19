@@ -24,6 +24,12 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
             (float)(500.f) goalkeeperIgnoreObstaclesDistance), /**< If the target is closer than this distance, the goalkeeper will ignore obstacles. */
        vars((Angle)(0_deg) startRotation)) /**< The value of \c theOdometryData.rotation when the \c turnAfterKick state is entered. */
 {
+  // MDFZ v39: theMotionInfo.lastKickType 的合法哨兵值就是 KickInfo::numOfKickTypes,
+  // 而 theKickInfo 的 kicks 数组只有 numOfKickTypes 个元素(下标 0..N-1).
+  // 没真正执行过踢球时直接下标访问就是越界读, 会拿到垃圾的 postRotationOffset 去乱转.
+  const KickInfo::KickType mdfzLastKickType =
+    theMotionInfo.lastKickType < KickInfo::numOfKickTypes ? theMotionInfo.lastKickType : KickInfo::rlKickDynamic;
+
   const Pose2f kickPose = Pose2f(targetDirection, theFieldBall.positionRelative).rotate(theKickInfo[kickType].rotationOffset).translate(theKickInfo[kickType].ballOffset);
 
   ASSERT(reduceWalkSpeedType != ReduceWalkSpeedType::distanceBased);
@@ -52,7 +58,7 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
     {
       if(action_done)
       {
-        if(theKickInfo[theMotionInfo.lastKickType].postRotationOffset != 0_deg)
+        if(theKickInfo[mdfzLastKickType].postRotationOffset != 0_deg)
         {
           startRotation = theOdometryData.rotation;
           goto turnAfterKick;
@@ -92,7 +98,7 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
     {
       if(action_done)
       {
-        if(theKickInfo[theMotionInfo.lastKickType].postRotationOffset != 0_deg)
+        if(theKickInfo[mdfzLastKickType].postRotationOffset != 0_deg)
         {
           startRotation = theOdometryData.rotation;
           goto turnAfterKick;
@@ -132,7 +138,7 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
     {
       if(action_done)
       {
-        if(theKickInfo[theMotionInfo.lastKickType].postRotationOffset != 0_deg)
+        if(theKickInfo[mdfzLastKickType].postRotationOffset != 0_deg)
         {
           startRotation = theOdometryData.rotation;
           goto turnAfterKick;
@@ -184,9 +190,9 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
     {
       PublishMotion({.target = kickPose.translation,
                      .speed = {0.f, 0.f, 0.f}});
-      LookAtAngles({.pan = Angle::normalize(theKickInfo[theMotionInfo.lastKickType].postRotationOffset - (theOdometryData.rotation - startRotation)),
+      LookAtAngles({.pan = Angle::normalize(theKickInfo[mdfzLastKickType].postRotationOffset - (theOdometryData.rotation - startRotation)),
                     .tilt = 23_deg});
-      TurnAngle({.angle = theKickInfo[theMotionInfo.lastKickType].postRotationOffset});
+      TurnAngle({.angle = theKickInfo[mdfzLastKickType].postRotationOffset});
     }
   }
 

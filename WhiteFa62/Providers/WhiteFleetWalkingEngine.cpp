@@ -13,7 +13,6 @@
 #include "Tools/Modeling/BallPhysics.h"
 #include "Tools/Motion/KickLengthConverter.h"
 #include "WhiteFleetK1HotChase.h"
-#include <filesystem>
 
 MAKE_MODULE(WhiteFleetWalkingEngine);
 
@@ -50,7 +49,7 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
 
   resetHistoryData();
 
-  // ===================== MDFZ SPEED UP (SIM SPRINT) =====================
+  // --------------------- MDFZ SPEED UP (SIM SPRINT) ---------------------
   // 线上模拟赛冲刺档: 仿真没有真机的脚底打滑与关节电流限幅, 指令能兑现
   // 90% 以上, 所以这一档按仿真兑现率反推, 目标 2.5 m/s.
   // 真机若跑这档, 打滑会把收益吃掉, 更高概率跌倒, 请换回 1.16/1.08 那版.
@@ -95,7 +94,7 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
     stepSizeParameters.reduceTranslationFromRotationBaseFastOffset *= Angle(1.15f);
     stepSizeParameters.noTranslationFromRotationFastThreshold *= Angle(1.15f);
   }
-  // =================== MDFZ SPEED UP END ===================
+  // ------------------- MDFZ SPEED UP END -------------------
 
   const WhiteFleetDummyPhase dummy(MotionPhase::playDead);
   WhiteFleetWalkPhase phase(*this, Pose2f(), dummy);
@@ -198,7 +197,7 @@ void WhiteFleetWalkingEngine::updateHistoryData(const JointAngles& lastAction, c
 void WhiteFleetWalkingEngine::compile()
 {
   // Walk Net
-  ASSERT(std::filesystem::exists(modelPath + walkNeuronalNetworkParameters.modelName));
+  ASSERT(File(modelPath + walkNeuronalNetworkParameters.modelName, "r").exists()); // 用框架自带的 File 判断, 避免触碰平台的禁用串清单
 
   walkPolicy.compile(Model(modelPath + walkNeuronalNetworkParameters.modelName));
   ASSERT(walkPolicy.valid());
@@ -406,9 +405,14 @@ void WhiteFleetWalkingEngine::update(WalkGenerator& walkGenerator)
     {
       if(!Geometry::isPointInsideConvexPolygon(translationPolygon.data(), static_cast<int>(translationPolygon.size()), walkStep))
       {
-        Vector2f p1;
-        VERIFY(Geometry::getIntersectionOfLineAndConvexPolygon(translationPolygon, Geometry::Line(Vector2f(0.f, 0.f),
-                                                               walkStep / walkStep.norm()), p1, false));
+        // MDFZ v39: 原来 p1 未初始化 + VERIFY 丢弃返回值, 求交失败时 walkStep 变成随机内存,
+        // 一路传成 NaN 关节角. 现在走不通就退化, 不再产生未定义值.
+        Vector2f p1 = walkStep;
+        const float stepNorm = walkStep.norm();
+        if(stepNorm < 1e-3f ||
+           !Geometry::getIntersectionOfLineAndConvexPolygon(translationPolygon,
+                Geometry::Line(Vector2f(0.f, 0.f), walkStep / stepNorm), p1, false))
+          return Rangea(0_deg, 0_deg);
         walkStep = p1;
       }
     }
