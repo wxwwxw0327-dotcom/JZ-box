@@ -199,7 +199,14 @@ private:
   // 形成"出不去 -> 球更靠后 -> 更出不去"的死锁. 这条只做一件事:
   // 保证永远有一名场上球员站在对方半场等着接长传.
   void applyHighOutlet(SkillRequest& request, const Agent& self);
+  // MDFZ v40: 后场带球推进. 平台统计: 控球 52% 但球在对方半场只有 36%, 一场只完成 1 次传球.
+  // 说明球权是在后场被横传送掉的. 这条只在"后场 + 周围有空间 + 原生想传球"时改成向前带球.
+  void applyForwardDrive(SkillRequest& request, const Agent& self);
+  unsigned driveCount = 0, lastDriveLog = 0;
   unsigned outletCount = 0, outletToggles = 0, outletSince = 0;
+  // MDFZ v41: 遥测. 每 2 秒给每名场上球员打一条, 用来回答"持球时到底在做什么",
+  // 不用再靠录像猜. 只读, 不改变任何行为.
+  unsigned lastTelemetry = 0;
   bool outletLatched = false;
   struct MdfzCond {int name=0;bool less=true;float value=0.f;};
   struct MdfzRule {bool ball=true;int action=0;float a=0.f,b=0.f;std::vector<MdfzCond> conds;std::string text;};

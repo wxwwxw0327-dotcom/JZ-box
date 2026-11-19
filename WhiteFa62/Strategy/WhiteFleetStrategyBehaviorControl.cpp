@@ -268,9 +268,41 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
+  // MDFZ v40: 后场带球推进 (放在出口之前: 先决定球怎么走, 再决定人去哪)
+  if(self && !wasPenalized)
+    applyForwardDrive(skillRequest, *self);
+
   // MDFZ v37: 前场常驻出口
   if(self && !wasPenalized)
     applyHighOutlet(skillRequest, *self);
+
+  // MDFZ v41: 只读遥测. 平台试踢日志里 MDFZ_TELEM 行直接回答三个问题:
+  //   1) 我们持球时到底在做什么(skill 分布)
+  //   2) 有多少时间球在对方半场(ball.x > 0 的比例)
+  //   3) 对手离球多近(oppd), 判断该突还是该传
+  if(self && !wasPenalized && theFrameInfo.getTimeSince(lastTelemetry) >= 2000)
+  {
+    lastTelemetry = theFrameInfo.time;
+    const Vector2f telemBall = theFieldBall.recentBallPositionOnField();
+    float telemOpp = 100000.f;
+    const unsigned telemNow = theFrameInfo.time;
+    for(const auto& obstacle : theObstacleModel.obstacles)
+      if(obstacle.isOpponent() && obstacle.lastSeen && obstacle.lastSeen <= telemNow &&
+         telemNow - obstacle.lastSeen <= 1000 && obstacle.center.allFinite())
+      {
+        const Vector2f p = theRobotPose * obstacle.center;
+        if(p.allFinite() && telemBall.allFinite())
+          telemOpp = std::min(telemOpp, (p - telemBall).norm());
+      }
+    std::printf("MDFZ_TELEM t=%u self=%d role=%s skill=%d state=%d ball=%.0f,%.0f myd=%.0f oppd=%.0f\n",
+                theFrameInfo.time, self->number, TypeRegistry::getEnumName(self->role),
+                static_cast<int>(skillRequest.skill), static_cast<int>(theGameState.state),
+                telemBall.allFinite() ? telemBall.x() : 0.f,
+                telemBall.allFinite() ? telemBall.y() : 0.f,
+                telemBall.allFinite() ? (telemBall - theRobotPose.translation).norm() : 0.f,
+                telemOpp);
+    std::fflush(stdout);
+  }
 
   theBehavior.postProcess();
 
@@ -2078,6 +2110,56 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
+}
+
+void WhiteFleetStrategyBehaviorControl::applyForwardDrive(SkillRequest& request, const Agent& self)
+{
+  // MDFZ v40: 把"后场横传"换成"向前带球".
+  // 依据: 平台统计 控球 52% / 球在对方半场 36% / 完成传球 1 次 / 射门 2 次.
+  // 控球不低但推进不上去, 说明球是在自家半场被传掉的. 后场有空间时自己带是最稳的推进方式.
+  if(theGameState.state != GameState::playing || theGameState.stopped ||
+     theGameState.playerState != GameState::active)
+    return;
+  if(self.isGoalkeeper)
+    return;
+  // 只接管"原生想传球"的那一帧, 其它决策一律不动
+  if(request.skill != SkillRequest::pass)
+    return;
+  if(!theFieldBall.ballWasSeen(650) || !theFieldBall.positionOnField.allFinite())
+    return;
+  const Vector2f ball = theFieldBall.positionOnField;
+  const float driveTriggerX = 0.f;        // 只在我方半场生效
+  const float driveFreeRadius = 1800.f;   // 球周围 1.8m 内没有对手才敢带
+  if(ball.x() > driveTriggerX)
+    return;                                // 已经在对方半场, 交给原生(该射该传自己判断)
+
+  // 最近对手到球的距离
+  float nearestOpponent = std::numeric_limits<float>::infinity();
+  const unsigned now = theFrameInfo.time;
+  for(const auto& obstacle : theObstacleModel.obstacles)
+    if(obstacle.isOpponent() && obstacle.lastSeen && obstacle.lastSeen <= now &&
+       now - obstacle.lastSeen <= 1000 && obstacle.center.allFinite())
+    {
+      const Vector2f p = theRobotPose * obstacle.center;
+      if(p.allFinite())
+        nearestOpponent = std::min(nearestOpponent, (p - ball).norm());
+    }
+  if(nearestOpponent < driveFreeRadius)
+    return;                                // 被贴身, 交给原生(传球/解围更合适)
+
+  // 朝对方球门方向带. 不直接朝球门中心, 而是朝"球门线中点", 避免贴边线
+  const Vector2f goal(theFieldDimensions.xPosOpponentGoalLine, 0.f);
+  const Angle direction = Angle((goal - ball).angle());
+  request = SkillRequest::Builder::dribbleTo(direction);
+  ++driveCount;
+  if(theFrameInfo.getTimeSince(lastDriveLog) >= 4000)
+  {
+    lastDriveLog = theFrameInfo.time;
+    std::printf("MDFZ_DRIVE self=%d ball=%.0f,%.0f nearest_opp=%.0f dir=%.0f count=%u\n",
+                self.number, ball.x(), ball.y(), nearestOpponent,
+                static_cast<float>(direction.toDegrees()), driveCount);
+    std::fflush(stdout);
+  }
 }
 
 void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, const Agent& self)
