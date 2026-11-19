@@ -268,6 +268,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
+  // MDFZ v35: 两人最小间距 (最后一道, 只处理挤在一起这一种情况)
+  if(self && !wasPenalized)
+    applySupportSeparation(skillRequest, *self);
+
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
@@ -2074,6 +2078,63 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
+}
+
+void WhiteFleetStrategyBehaviorControl::applySupportSeparation(SkillRequest& request, const Agent& self)
+{
+  if(!theGameState.isPlaying() || theGameState.stopped || theGameState.playerState != GameState::active)
+    return;
+  if(self.isGoalkeeper || Role::isActiveRole(self.role))
+    return;                                            // 门将和持球人不管
+  if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
+    return;
+  if(!theRobotPose.isFinite())
+    return;
+  const Vector2f ball = theFieldBall.recentBallPositionOnField();
+  if(!ball.allFinite())
+    return;
+  // 三个门槛: 低于 1.2 m 才算挤; 球已在 1.5 m 内的属于正常争抢; 拉开到 1.8 m
+  const float separationMinDistance = 1200.f;
+  const float separationBallGuard = 1500.f;
+  const float separationTargetDistance = 1800.f;
+  // 另一名场上球员
+  const Agent* other = nullptr;
+  for(const Agent& a : agents)
+    if(a.number != self.number && !a.isGoalkeeper && a.isUpright && a.pose.isFinite())
+    {
+      other = &a;
+      break;
+    }
+  if(!other)
+    return;
+  const Vector2f me = theRobotPose.translation;
+  const Vector2f peer = other->pose.translation;
+  const float distance = (me - peer).norm();
+  if(distance >= separationMinDistance)
+    return;                                            // 间距够, 一切照旧
+  // 球就在两人附近: 这是正常的争抢/协防, 不要硬拉开
+  if((ball - me).norm() < separationBallGuard || (ball - peer).norm() < separationBallGuard)
+    return;
+  // 谁离球远谁让开, 离球近的那个继续做它原来的事
+  if((ball - me).norm() < (ball - peer).norm())
+    return;
+  Vector2f away = me - peer;
+  if(!away.allFinite() || away.norm() < 1.f)
+    away = Vector2f(0.f, self.baseTranslation.y() < 0.f ? -1.f : 1.f); // 完全重合时按自己那一侧让
+  Vector2f target = peer + away.normalized(separationTargetDistance);
+  target.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f,
+                        std::min(theFieldDimensions.xPosOpponentGoalLine - 300.f, target.x()));
+  target.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f,
+                        std::min(theFieldDimensions.yPosLeftTouchline - 300.f, target.y()));
+  request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - target).angle()), target));
+  ++separateCount;
+  if(theFrameInfo.getTimeSince(lastSeparateLog) >= 2000)
+  {
+    lastSeparateLog = theFrameInfo.time;
+    std::printf("MDFZ_SEPARATE self=%d other=%d d=%.0f target=%.0f,%.0f count=%u\n",
+                self.number, other->number, distance, target.x(), target.y(), separateCount);
+    std::fflush(stdout);
+  }
 }
 
 void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)
