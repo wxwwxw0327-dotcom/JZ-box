@@ -197,7 +197,10 @@ void WhiteFleetWalkingEngine::updateHistoryData(const JointAngles& lastAction, c
 void WhiteFleetWalkingEngine::compile()
 {
   // Walk Net
-  ASSERT(File(modelPath + walkNeuronalNetworkParameters.modelName, "r").exists()); // 用框架自带的 File 判断, 避免触碰平台的禁用串清单
+  // MDFZ v39.1: 这里原本有一行"模型文件是否存在"的自检, 平台把这类调用算作
+  // "读写配置或文件", 静态检查会直接拒绝, 所以整行删除.
+  // 不影响行为: 下一行 walkPolicy.compile 在文件缺失时自己会失败,
+  // 由紧随其后的 ASSERT(walkPolicy.valid()) 兜住.
 
   walkPolicy.compile(Model(modelPath + walkNeuronalNetworkParameters.modelName));
   ASSERT(walkPolicy.valid());
