@@ -1211,14 +1211,22 @@ bool WhiteFleetSkillBehaviorControl::handleC15Kickoff()
     // reception from3. A reverse/already-bound intent cannot swallow3's shoot.
     // Preserve the original dispatcher and all later native guards.
     // Keep READY/SET preparation and all non-enrolled modes byte-for-byte below.
+    // MDFZ v42: 这条诊断日志原来每台每秒刷一行, 60 秒试踢就能刷掉 120 行,
+    // 把平台的"最后几十行"日志全占满, 我们自己的 MDFZ_TELEM 遥测根本露不出来.
+    // 改成 6 秒一次(只在状态或技能变化时仍立即打), 保留诊断价值但不刷屏.
     static thread_local unsigned lastDispatchLog=0;
-    if(!theGameState.isGoalkeeper()&&(!lastDispatchLog||theFrameInfo.time<lastDispatchLog||
-       theFrameInfo.getTimeSince(lastDispatchLog)>=1000))
+    static thread_local unsigned lastDispatchState=999, lastDispatchSkill=999;
+    const unsigned curState=static_cast<unsigned>(theGameState.state);
+    const unsigned curSkill=static_cast<unsigned>(theSkillRequest.skill);
+    const bool dispatchChanged=(curState!=lastDispatchState||curSkill!=lastDispatchSkill);
+    if(!theGameState.isGoalkeeper()&&(dispatchChanged||!lastDispatchLog||theFrameInfo.time<lastDispatchLog||
+       theFrameInfo.getTimeSince(lastDispatchLog)>=6000))
     {
       lastDispatchLog=theFrameInfo.time;
+      lastDispatchState=curState;
+      lastDispatchSkill=curSkill;
       std::printf("NATIVE_KICKOFF_DISPATCH self=%d state=%u skill=%u legacy_c15_bypassed=1 physical=%d\n",
-          theGameState.playerNumber,static_cast<unsigned>(theGameState.state),
-          static_cast<unsigned>(theSkillRequest.skill),WhiteFleetSimPhysical::physical());
+          theGameState.playerNumber,curState,curSkill,WhiteFleetSimPhysical::physical());
     }
     if(handleKickerPostKickHold())return true;
     if(handleAutonomousKickoffReceive())return true;

@@ -82,7 +82,7 @@ WhiteFleetRolePlayBall::SmashOrPassInfo WhiteFleetRolePlayBall::getSmashOrPassIn
   // 且球在对方半场 -> 直接起脚. 老问题: 对方半场只剩门将时, ExpectedGoals 评分很低,
   // 达不到 shootThreshold, 于是回落成"带球", 看起来就是一路小踢不射门.
   if(self.isUpright && theIndirectKick.allowDirectKick && theKickAtGoalEvaluation.kickInfo.isValid &&
-     ballPosition.x() > 0.f && (ballPosition - goalPosition).norm() < 9000.f)
+     ballPosition.x() > 0.f && (ballPosition - goalPosition).norm() < 12000.f)  // C1 实验: 9m -> 12m
     bestActionRating = std::max(bestActionRating, 1.f);
   float maxPassDistance = p.maxPassDistance;
   float minPassDistance = p.minPassDistance;

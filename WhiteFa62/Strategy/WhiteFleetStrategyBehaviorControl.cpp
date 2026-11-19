@@ -268,7 +268,7 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
-  // MDFZ v40: 后场带球推进 (放在出口之前: 先决定球怎么走, 再决定人去哪)
+  // C2: 后场持球强制向前带 (放在出口之前: 先决定球怎么走, 再决定人去哪)
   if(self && !wasPenalized)
     applyForwardDrive(skillRequest, *self);
 
