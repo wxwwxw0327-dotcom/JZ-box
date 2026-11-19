@@ -263,3 +263,49 @@ v39 只修「会崩、会卡死、会算错」这一类，不碰策略偏好。
 顺带查出一个之前的误判：v29-b 加的"门前 9 m 远射"**门槛从来不会生效**——
 对方半场内球到对方球门最远只有 5408 mm，`< 9000` 恒真。也就是说 v33 之后
 "球在对方半场 + 射门通道没被挡"就已经在射了，射门少是**推不上去**，不是门槛问题。
+
+## ⚠️ 环境对齐（最重要的一条，2026-11-19）
+
+平台试踢日志里每行都带 `physical=1`。查 `WhiteFleetSimPhysical.h` 后确认：
+
+```
+physical() = (getMode()==physicalRobot) || emulate()
+emulate()  = 环境变量 MDFZ_SIM_EMULATE_PHYSICAL=1 && simulatedRobot && arenaTeam(team)
+```
+
+**平台给仿真器设了 `MDFZ_SIM_EMULATE_PHYSICAL=1`**，走"物理路径仿真"分支。
+本地如果没设，走的是仿真分支，两者开的东西完全不同：
+
+| 模块 | 平台 (physical=1) | 本地未设时 |
+|---|---|---|
+| DefenseCounterSwitch | 开 | 关 |
+| matchTacticalRepair（后台直塞/对方侧站位） | 开 | 关 |
+| AutonomousKickoff（开球 playbook） | 开 | 关 |
+| K1HotChase | 开 | 关 |
+| OpponentGoalKickGuard | 开 | 关 |
+
+→ **v33~v41 的所有本地测量都是在错误分支上做的，全部作废。**
+`/tmp/smoke3v3.sh` 已加 `export MDFZ_SIM_EMULATE_PHYSICAL=1`，现在本地 `physical=1`、`NATIVE_KICKOFF_DISPATCH` 都出现，与平台一致。
+
+对齐后本地数字变化很大：球在对方半场 43%→49%，平均球位 −1659→+428mm，射门帧 7~9→36。
+
+## 本地基准的噪声底线
+
+同一份代码（v42 vs v42.1，行为完全相同）两次 2 场基准：
+对方半场 49% / 39%，平均球位 +428 / −328。
+→ **2~3 场样本的抖动超过 10 个点，单变量 A/B 至少要 5 场以上才有分辨力。**
+不要再拿 2 场结果下结论。
+
+## 状态分布（v42.1，3 场日志）
+
+| state | 占比 | 该状态下的 skill |
+|---|---|---|
+| playing | **27.6%** | walk 47% / shoot 30% / stand 14% |
+| ownKickOff | 17.4% | walk 100% |
+| oppKickOff | 17.4% | walk 100% |
+| ownCorner | 7.3% | stand 71% / shoot 29% |
+| ownGoalKick | 5.9% | stand 100% |
+| oppGoalKick | 5.9% | stand 100% |
+
+**真正在踢球的时间只占约 28%**，剩下全是定位球阶段。下一轮要改的话，
+定位球（尤其自己门球 100% 站着）比开放比赛更值得动。
