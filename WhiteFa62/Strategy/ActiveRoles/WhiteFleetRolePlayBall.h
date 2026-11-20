@@ -86,6 +86,7 @@ class WhiteFleetRolePlayBall : public ActiveRole
   unsigned lastPassTargetTimestamp = 0; /**< Timestamp when last time a pass was planned. Used to keep passing for a short time. */
   std::optional<Vector2f> dribbleTarget;
   const Vector2f goalPosition = Vector2f(theFieldDimensions.xPosOpponentGoalLine, 0.f);
+  unsigned mdfzLastChoiceLog = 0; // MDFZ 决策遥测限频
   float decisionPenalty = 0.f;
   float clearDribbleHysteresis = 0.f;
 

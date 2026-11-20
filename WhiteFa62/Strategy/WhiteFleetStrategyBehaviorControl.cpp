@@ -268,42 +268,6 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
-  // C2: 后场持球强制向前带 (放在出口之前: 先决定球怎么走, 再决定人去哪)
-  if(self && !wasPenalized)
-    applyForwardDrive(skillRequest, *self);
-
-  // MDFZ v37: 前场常驻出口
-  if(self && !wasPenalized)
-    applyHighOutlet(skillRequest, *self);
-
-  // MDFZ v41: 只读遥测. 平台试踢日志里 MDFZ_TELEM 行直接回答三个问题:
-  //   1) 我们持球时到底在做什么(skill 分布)
-  //   2) 有多少时间球在对方半场(ball.x > 0 的比例)
-  //   3) 对手离球多近(oppd), 判断该突还是该传
-  if(self && !wasPenalized && theFrameInfo.getTimeSince(lastTelemetry) >= 2000)
-  {
-    lastTelemetry = theFrameInfo.time;
-    const Vector2f telemBall = theFieldBall.recentBallPositionOnField();
-    float telemOpp = 100000.f;
-    const unsigned telemNow = theFrameInfo.time;
-    for(const auto& obstacle : theObstacleModel.obstacles)
-      if(obstacle.isOpponent() && obstacle.lastSeen && obstacle.lastSeen <= telemNow &&
-         telemNow - obstacle.lastSeen <= 1000 && obstacle.center.allFinite())
-      {
-        const Vector2f p = theRobotPose * obstacle.center;
-        if(p.allFinite() && telemBall.allFinite())
-          telemOpp = std::min(telemOpp, (p - telemBall).norm());
-      }
-    std::printf("MDFZ_TELEM t=%u self=%d role=%s skill=%d state=%d ball=%.0f,%.0f myd=%.0f oppd=%.0f\n",
-                theFrameInfo.time, self->number, TypeRegistry::getEnumName(self->role),
-                static_cast<int>(skillRequest.skill), static_cast<int>(theGameState.state),
-                telemBall.allFinite() ? telemBall.x() : 0.f,
-                telemBall.allFinite() ? telemBall.y() : 0.f,
-                telemBall.allFinite() ? (telemBall - theRobotPose.translation).norm() : 0.f,
-                telemOpp);
-    std::fflush(stdout);
-  }
-
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
@@ -313,12 +277,14 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     for(const Agent& agent : agents)
       if(Role::isActiveRole(agent.role) && agent.role != ActiveRole::toRole(ActiveRole::closestToTeamBall))
         owner = agent.number;
-    std::printf("MATCH_STRATEGY pid=%d goalkeeper=%d playing=%d own_setplay=%d agents=%zu owner=%d position=%s role=%s skill=%s ball_age_ms=%d team_ball_valid=%d pose_mm_rad=%.1f,%.1f,%.3f\n",
+    std::printf("MATCH_STRATEGY pid=%d goalkeeper=%d playing=%d own_setplay=%d agents=%zu owner=%d position=%s role=%s skill=%s ball_age_ms=%d team_ball_valid=%d pose_mm_rad=%.1f,%.1f,%.3f ball=%.0f,%.0f xg=%.2f\n",
                 theGameState.playerNumber, theGameState.ownTeam.isGoalkeeper(theGameState.playerNumber),
                 theGameState.isPlaying(), theGameState.isForOwnTeam(), agents.size(), owner,
                 TypeRegistry::getEnumName(theStrategyStatus.position), TypeRegistry::getEnumName(theStrategyStatus.role),
                 TypeRegistry::getEnumName(skillRequest.skill), theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen),
-                theTeamBallModel.isValid, theRobotPose.translation.x(), theRobotPose.translation.y(), static_cast<float>(theRobotPose.rotation));
+                theTeamBallModel.isValid, theRobotPose.translation.x(), theRobotPose.translation.y(), static_cast<float>(theRobotPose.rotation),
+                theFieldBall.positionOnField.x(), theFieldBall.positionOnField.y(),
+                theExpectedGoals.getRating(theFieldBall.positionOnField, false, false, false));
   }
 }
 
@@ -2112,151 +2078,3 @@ void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
 }
 
-void WhiteFleetStrategyBehaviorControl::applyForwardDrive(SkillRequest& request, const Agent& self)
-{
-  // MDFZ v40: 把"后场横传"换成"向前带球".
-  // 依据: 平台统计 控球 52% / 球在对方半场 36% / 完成传球 1 次 / 射门 2 次.
-  // 控球不低但推进不上去, 说明球是在自家半场被传掉的. 后场有空间时自己带是最稳的推进方式.
-  if(theGameState.state != GameState::playing || theGameState.stopped ||
-     theGameState.playerState != GameState::active)
-    return;
-  if(self.isGoalkeeper)
-    return;
-  // 只接管"原生想传球"的那一帧, 其它决策一律不动
-  if(request.skill != SkillRequest::pass)
-    return;
-  if(!theFieldBall.ballWasSeen(650) || !theFieldBall.positionOnField.allFinite())
-    return;
-  const Vector2f ball = theFieldBall.positionOnField;
-  const float driveTriggerX = 0.f;        // 只在我方半场生效
-  const float driveFreeRadius = 1800.f;   // 球周围 1.8m 内没有对手才敢带
-  if(ball.x() > driveTriggerX)
-    return;                                // 已经在对方半场, 交给原生(该射该传自己判断)
-
-  // 最近对手到球的距离
-  float nearestOpponent = std::numeric_limits<float>::infinity();
-  const unsigned now = theFrameInfo.time;
-  for(const auto& obstacle : theObstacleModel.obstacles)
-    if(obstacle.isOpponent() && obstacle.lastSeen && obstacle.lastSeen <= now &&
-       now - obstacle.lastSeen <= 1000 && obstacle.center.allFinite())
-    {
-      const Vector2f p = theRobotPose * obstacle.center;
-      if(p.allFinite())
-        nearestOpponent = std::min(nearestOpponent, (p - ball).norm());
-    }
-  if(nearestOpponent < driveFreeRadius)
-    return;                                // 被贴身, 交给原生(传球/解围更合适)
-
-  // 朝对方球门方向带. 不直接朝球门中心, 而是朝"球门线中点", 避免贴边线
-  const Vector2f goal(theFieldDimensions.xPosOpponentGoalLine, 0.f);
-  const Angle direction = Angle((goal - ball).angle());
-  request = SkillRequest::Builder::dribbleTo(direction);
-  ++driveCount;
-  if(theFrameInfo.getTimeSince(lastDriveLog) >= 4000)
-  {
-    lastDriveLog = theFrameInfo.time;
-    std::printf("MDFZ_DRIVE self=%d ball=%.0f,%.0f nearest_opp=%.0f dir=%.0f count=%u\n",
-                self.number, ball.x(), ball.y(), nearestOpponent,
-                static_cast<float>(direction.toDegrees()), driveCount);
-    std::fflush(stdout);
-  }
-}
-
-void WhiteFleetStrategyBehaviorControl::applyHighOutlet(SkillRequest& request, const Agent& self)
-{
-  // MDFZ v39: 前场常驻出口（按审查意见重写）
-  //
-  // 目的: 录像实测我们最前的球员只到 +0.52m(刚过中线), 对手压到 -2.86m。
-  // 球在我们半场时原生战术按球位置整体收缩, 形成"出不去 -> 球更靠后 -> 更出不去"的死锁。
-  // 这条只保证一件事: 我们持球时, 永远有一名纯位置角色站在对方半场等着接球。
-
-  // [1] 只让"纯位置角色"去站。playBall / closestToTeamBall / freeKickWall 这些
-  //     active role 虽然 skill 也可能显示 walk, 但它们的 walkTo 是有含义的, 一律不动。
-  if(!Role::isPositionRole(self.role))
-    return;
-
-  // [2] 只有真正的 PLAYING。不能用 isPlaying(): 它对开球和所有定位球都返回 true。
-  if(theGameState.state != GameState::playing || theGameState.stopped ||
-     theGameState.playerState != GameState::active)
-    return;
-  if(self.isGoalkeeper || !self.isUpright)
-    return;
-  if(!theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor)
-    return;
-
-  // [3] 不覆盖任何"协议请求"和安全冻结
-  if(request.kickoffThrough || request.kickoffThroughRetired || request.restartPassRequired ||
-     request.isolatedKickoffFinished || request.backfieldStrongOutlet || request.mdfzRule)
-    return;
-  if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
-    return;
-
-  // [4] 球必须真的新鲜。没见过时 positionOnField 恒为 (0,0) 且 allFinite() 为真,
-  //     会造出"幻影中圈球"让两个人同时误判。
-  if(!theFieldBall.ballWasSeen(650) || !theFieldBall.positionOnField.allFinite())
-    return;
-  const Vector2f ball = theFieldBall.positionOnField;
-
-  // [5] 找最近的那名场上队友: 新鲜 + 位姿有限 + 用传播到当前的估计位置
-  const Agent* peer = nullptr;
-  float peerBallDistance = std::numeric_limits<float>::infinity();
-  for(const Agent& a : agents)
-    if(a.number != self.number && !a.isGoalkeeper && a.isUpright &&
-       a.pose.isFinite() && a.currentPosition.allFinite() &&
-       TeamActivityPolicy::fresh(theFrameInfo.time, a.timestamp, 1200))
-    {
-      const float d = (ball - a.currentPosition).norm();
-      if(d < peerBallDistance)
-      {
-        peerBallDistance = d;
-        peer = &a;
-      }
-    }
-  if(!peer)
-    return;
-
-  const Vector2f me = theRobotPose.translation;
-  const float myBallDistance = (ball - me).norm();
-
-  // [6] 球必须在脚下, 而且不能正朝我们球门滚; 领先/末段也不送人上去
-  if(std::min(myBallDistance, peerBallDistance) > 900.f)
-    return;
-  if(theFieldBall.velocityOnField.allFinite() && theFieldBall.velocityOnField.x() < -800.f)
-    return;
-  if(situationMode == SituationMode::protect)
-    return;
-
-  // [7] 滞回: 触发 200 / 释放 900, 与 rest defense 用同一套写法, 防止球在边界反复穿越时每帧抖
-  if(!outletLatched)
-  {
-    // 进入必须同时满足上下界: 只判上界会让"球已经到我方禁区"时也进入, 下一帧立刻退出, 每帧抖
-    if(ball.x() > 200.f || ball.x() < -2800.f)
-      return;
-    outletLatched = true;
-    outletSince = theFrameInfo.time;
-    std::printf("MDFZ_OUTLET begin self=%d role=%s ball=%.0f,%.0f d_self=%.0f d_peer=%.0f\n",
-                self.number, TypeRegistry::getEnumName(self.role), ball.x(), ball.y(),
-                myBallDistance, peerBallDistance);
-    std::fflush(stdout);
-  }
-  else if((ball.x() > 900.f || ball.x() < -2800.f) && theFrameInfo.getTimeSince(outletSince) > 800u)
-  {
-    // 释放额外加 800ms 驻留, 防球在边界来回穿越时每帧翻转
-    outletLatched = false;
-    std::printf("MDFZ_OUTLET end self=%d ball=%.0f toggles=%u\n", self.number, ball.x(), ++outletToggles);
-    std::fflush(stdout);
-    return;
-  }
-
-  // [8] 站位用场地相对量: 对方球门线往回收 2500mm; 横向站到球的另一侧, 拉开传球线路
-  const float standX = theFieldDimensions.xPosOpponentGoalLine - 2500.f;
-  const float side = ball.y() > 0.f ? -1.f : 1.f;
-  Vector2f target(standX, side * (theFieldDimensions.yPosLeftTouchline - 1600.f));
-  target.x() = std::max(theFieldDimensions.xPosOwnGoalLine + 600.f,
-                        std::min(theFieldDimensions.xPosOpponentGoalLine - 600.f, target.x()));
-  target.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f,
-                        std::min(theFieldDimensions.yPosLeftTouchline - 300.f, target.y()));
-  // 朝"要走的方向", 不朝球: 朝球会让位移变成侧向/后退, 2.4m/s 的前向速度吃不到
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle((target - me).angle()), target));
-  ++outletCount;
-}

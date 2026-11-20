@@ -16,6 +16,10 @@
 #include "WhiteFleetMatchTacticalRepair.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include "Tools/BehaviorControl/Strategy/Agent.h"
+#include "Framework/Settings.h"
+#include <cstdio>
+#include <cstdlib>
+
 
 WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
 {
@@ -24,8 +28,10 @@ WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
   stream >> p;
   // F1 parameter lab (the platform cfg keeps priority if it is already more aggressive):
   // shoot earlier -> more goal attempts. One conservative step down from the defaults.
-  p.shootThreshold = std::min(p.shootThreshold, 0.45f);
-  p.riskyShootThreshold = std::min(p.riskyShootThreshold, 0.2f);
+  // v44 结论: 射门门槛压到 0.12 / 0.08 后对 v33 级对手净胜球明显变好; 反方向(0.55/0.50)是明确负收益.
+  // 原因: 这套环境里传球很难完成, 早一点把球踢向球门反而少丢球权, 也把对手压回自己半场.
+  p.shootThreshold = 0.12f;
+  p.riskyShootThreshold = 0.08f;
 }
 
 void WhiteFleetRolePlayBall::reset()
@@ -48,11 +54,25 @@ SkillRequest WhiteFleetRolePlayBall::execute(const Agent& self, const Agents& te
 SkillRequest WhiteFleetRolePlayBall::smashOrPass(const Agent& self, const Agents& teammates)
 {
   SmashOrPassInfo info = getSmashOrPassInfo(self, teammates);
-  if(theGameState.isFreeKick())
+  const SkillRequest result = theGameState.isFreeKick() ? SkillRequest::Builder::waitShoot(info.passTarget) : info.request;
+  // MDFZ 决策遥测: 每秒最多一行, 说明"为什么没射门". 平台日志里直接可读.
+  if(self.number && theFrameInfo.getTimeSince(mdfzLastChoiceLog) >= 1000)
   {
-    return SkillRequest::Builder::waitShoot(info.passTarget);
+    mdfzLastChoiceLog = theFrameInfo.time;
+    const Vector2f bp = self.pose * self.ballPosition;
+    int oppNear = 0;
+    for(const auto& o : theGlobalOpponentsModel.opponents)
+      if(o.position.allFinite() && (o.position - bp).norm() < 1500.f)
+        ++oppNear;
+    std::printf("MDFZ_CHOICE t=%u n=%u team=%u ball=%.0f,%.0f myd=%.0f gd=%.0f xg=%.2f pass=%d oppnear=%d skill=%s\n",
+                theFrameInfo.time, self.number, Global::getSettings().teamNumber,
+                bp.x(), bp.y(), self.ballPosition.norm(),
+                theKickAtGoalEvaluation.kickInfo.isValid ? (bp - goalPosition).norm() : -1.f,
+                theExpectedGoals.getRating(bp, false, false, false), info.passTarget, oppNear,
+                TypeRegistry::getEnumName(result.skill));
+    std::fflush(stdout);
   }
-  return info.request;
+  return result;
 }
 
 WhiteFleetRolePlayBall::SmashOrPassInfo WhiteFleetRolePlayBall::getSmashOrPassInfo(const Agent& self, const Agents& teammates)
@@ -129,6 +149,7 @@ WhiteFleetRolePlayBall::SmashOrPassInfo WhiteFleetRolePlayBall::getSmashOrPassIn
   const Agent* passTarget = nullptr;
   // TODO: Should the search start with ballPosition or recentBallPositionOnField?
   findPassTarget(theFieldBall.recentBallPositionOnField(), teammates, minPassDistance, maxPassDistance, p.maxSearchDepth, passTarget, bestActionRating, decisionPenalty, {});
+    passTarget = nullptr;
   if(!passTarget && theFrameInfo.getTimeSince(lastPassTargetTimestamp) < p.rememberPassTargetTime)
   {
     for(const auto& teammate : teammates)

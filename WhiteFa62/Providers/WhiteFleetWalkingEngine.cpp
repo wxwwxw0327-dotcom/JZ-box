@@ -54,8 +54,10 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
   // 90% 以上, 所以这一档按仿真兑现率反推, 目标 2.5 m/s.
   // 真机若跑这档, 打滑会把收益吃掉, 更高概率跌倒, 请换回 1.16/1.08 那版.
   {
-    const float gSpeed = 1.20f;   // 步幅与速度上限倍数
-    const float gAccel = 1.45f;   // 加减速上限倍数, 起步和变向不掉速
+    // A/B 结论(本地 5 分钟对局): 1.20 是对的, 再抬到 1.30 反而连输两场 --
+    // 步幅再大就会冲过球/刹不住, 所以这里保持 1.20 不动.
+    const float gSpeed = 1.20f;   // 步幅与速度上限倍数 (A/B 结论: 再快反而更差)
+    const float gAccel = 1.45f;   // 加减速上限倍数
     const float gFreq = 1.10f;    // 步频倍数
 
     // 1) 绝对速度上限: 走/跑/退/转/极限追球四个档案一起抬
