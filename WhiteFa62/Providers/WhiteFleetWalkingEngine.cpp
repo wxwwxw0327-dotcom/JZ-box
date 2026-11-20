@@ -1,8 +1,5 @@
 #include "WhiteFleetSimEntry.h"
 
-// 平台恒 1.0. 本地 A/B 脚本改成"只对候选队放大加减速上限".
-
-// 平台恒 1.20. 本地 A/B 脚本会把它改成"读 MDFZ_SPEED_MULT 且只对候选队生效".
 /**
  * @file WhiteFleetWalkingEngine.h
  *
