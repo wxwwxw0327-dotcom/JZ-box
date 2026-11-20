@@ -255,11 +255,19 @@ void WhiteFleetWalkingEngine::update(WalkStepData& walkStepData)
                             prev == GameState::waitForOpponentKickOff || prev == GameState::opponentKickOff;
     if(wasKickoff && theGameState.isPlaying())
     {
+      // 注意 isPlaying() 对 ownKickOff / opponentKickOff 这些阶段也返回 true, 所以这段在开球阶段
+      // 是每帧都进来的(计时每帧续期 = 整个开球阶段都有冲刺, 这是想要的行为).
+      // 但原来每帧都打一行 MDFZ_BURST start: 一场 5 分钟能刷 17000+ 行, 把平台日志尾部全淹了,
+      // 真正有用的 MDFZ_CHOICE 反而看不见. 现在只在"新窗口开始"时打一行, 行为不变, 日志干净.
+      const bool newWindow = mdfzBurstStart == 0u || theFrameInfo.time - mdfzBurstStart > 1000u;
       mdfzBurstStart = theFrameInfo.time;
-      std::printf("MDFZ_BURST start team=%d player=%d boost=%.2f window_ms=%u\n",
-                  Global::getSettings().teamNumber, Global::getSettings().playerNumber,
-                  mdfzBurstBoost, mdfzBurstWindow);
-      std::fflush(stdout);
+      if(newWindow)
+      {
+        std::printf("MDFZ_BURST start team=%d player=%d boost=%.2f window_ms=%u\n",
+                    Global::getSettings().teamNumber, Global::getSettings().playerNumber,
+                    mdfzBurstBoost, mdfzBurstWindow);
+        std::fflush(stdout);
+      }
     }
     const bool wasBurst = mdfzBurst;
     mdfzBurst = mdfzBurstStart > 0 && theFrameInfo.time >= mdfzBurstStart &&
