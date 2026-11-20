@@ -1,5 +1,7 @@
 #include "WhiteFleetSimEntry.h"
 
+// 平台恒 1.0. 本地 A/B 脚本改成"只对候选队放大加减速上限".
+
 // 平台恒 1.20. 本地 A/B 脚本会把它改成"读 MDFZ_SPEED_MULT 且只对候选队生效".
 /**
  * @file WhiteFleetWalkingEngine.h
@@ -59,7 +61,7 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
     // A/B 结论(本地 5 分钟对局): 1.20 是对的, 再抬到 1.30 反而连输两场 --
     // 步幅再大就会冲过球/刹不住, 所以这里保持 1.20 不动.
     const float gSpeed = 1.20f;   // 步幅与速度上限倍数 (A/B: 1.20/1.25 是平台期, 1.30 以上变差)
-    const float gAccel = 1.45f;   // 加减速上限倍数
+    const float gAccel = 1.45f;   // 加减速上限倍数 (A/B: 再放大到 1.9 是 0, 不采纳)
     const float gFreq = 1.10f;    // 步频倍数
 
     // 1) 绝对速度上限: 走/跑/退/转/极限追球四个档案一起抬
