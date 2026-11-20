@@ -30,8 +30,10 @@ WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
   // shoot earlier -> more goal attempts. One conservative step down from the defaults.
   // v44 结论: 射门门槛压到 0.12 / 0.08 后对 v33 级对手净胜球明显变好; 反方向(0.55/0.50)是明确负收益.
   // 原因: 这套环境里传球很难完成, 早一点把球踢向球门反而少丢球权, 也把对手压回自己半场.
-  p.shootThreshold = 0.12f;
-  p.riskyShootThreshold = 0.08f;
+  // v44-safe: 门槛保持 v33 原值 (平台实测 3:1 那一版的行为), 只带日志/遥测修复.
+  // 想要本轮的激进版请用 v44-shoot-first 分支.
+  p.shootThreshold = 0.30f;
+  p.riskyShootThreshold = 0.20f;
 }
 
 void WhiteFleetRolePlayBall::reset()
