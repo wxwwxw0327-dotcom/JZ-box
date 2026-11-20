@@ -105,6 +105,8 @@ public:
   static std::vector<ModuleBase::Info> getExtModuleInfo();
 
 private:
+
+  unsigned mdfzLastKickStamp = 0; /**< 踢球计数遥测用的上一帧 lastKickTimestamp. */
   /**
    * Updates the skill request.
    * @param skillRequest The provided skill request.

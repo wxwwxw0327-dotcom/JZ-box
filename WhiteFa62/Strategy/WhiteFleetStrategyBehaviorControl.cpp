@@ -268,6 +268,22 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
   // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
 
+  // 踢球计数遥测: 每次真的踢到球打一行, 用来量"一场到底踢了几脚, 从哪里踢的".
+  if(self && theMotionInfo.lastKickTimestamp != mdfzLastKickStamp)
+  {
+    mdfzLastKickStamp = theMotionInfo.lastKickTimestamp;
+    if(mdfzLastKickStamp != 0)
+    {
+      const Vector2f bp = theFieldBall.positionOnField;
+      std::printf("MDFZ_KICK t=%u n=%u team=%u ball=%.0f,%.0f gd=%.0f xg=%.2f skill=%s\n",
+                  theFrameInfo.time, self->number, Global::getSettings().teamNumber,
+                  bp.x(), bp.y(), (bp - Vector2f(theFieldDimensions.xPosOpponentGoalLine, 0.f)).norm(),
+                  theExpectedGoals.getRating(bp, false, false, false),
+                  TypeRegistry::getEnumName(skillRequest.skill));
+      std::fflush(stdout);
+    }
+  }
+
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
