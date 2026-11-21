@@ -17,8 +17,6 @@
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include "Tools/BehaviorControl/Strategy/Agent.h"
 #include "Framework/Settings.h"
-#include <cstdio>
-#include <cstdlib>
 
 
 WhiteFleetRolePlayBall::WhiteFleetRolePlayBall()
