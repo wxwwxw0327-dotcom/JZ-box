@@ -170,6 +170,16 @@ std::vector<ModuleBase::Info> WhiteFleetStrategyBehaviorControl::getExtModuleInf
   return result;
 }
 
+namespace
+{
+  // v45 站位优化: 角球. 基座战术里没有任何定位球站位点, 所以两个场上球员在角球时都站在自己的基准位,
+  // 近门柱和禁区弧顶永远是空的. 这里补两块:
+  //   自己角球 -> 非角球手去近门柱外侧(离角旗 2.6 米), 既是短传点也是补射点
+  //   对方角球 -> 一个守近门柱内侧, 一个守点球点附近, 门将自己守中路
+  // 只在"球还贴在角旗区"时生效, 球一旦开出去就交回原生逻辑, 不会把活球里的人拉走.
+  constexpr float mdfzCornerSetupRadius = 2000.f;
+}
+
 void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
 {
   WhiteFleetSimEntry::activate();
@@ -283,6 +293,9 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
       std::fflush(stdout);
     }
   }
+
+  if(self && !wasPenalized)
+    applyCornerSetPiece(skillRequest, *self);
 
   theBehavior.postProcess();
 
@@ -2094,3 +2107,62 @@ void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
 }
 
+void WhiteFleetStrategyBehaviorControl::applyCornerSetPiece(SkillRequest& request, const Agent& self)
+{
+  if(self.isGoalkeeper || Role::isActiveRole(self.role))
+    return;
+  if(request.skill != SkillRequest::walk && request.skill != SkillRequest::stand)
+    return;
+  if(!self.isUpright || !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor)
+    return;
+  if(!theFieldBall.positionOnField.allFinite())
+    return;
+  const bool own = theGameState.state == GameState::ownCornerKick;
+  const bool opp = theGameState.state == GameState::opponentCornerKick;
+  if(!own && !opp)
+    return;
+  const Vector2f ball = theFieldBall.positionOnField;
+  // 角旗点: 我方开的角球在对方门线一侧, 对方开的在我们自己门线一侧.
+  const float goalLineX = own ? theFieldDimensions.xPosOpponentGoalLine : theFieldDimensions.xPosOwnGoalLine;
+  const float side = ball.y() >= 0.f ? 1.f : -1.f;
+  const Vector2f cornerPoint(goalLineX, side * theFieldDimensions.yPosLeftTouchline);
+  // 球已经开出去了(离角旗超过 2 米) -> 交回原生逻辑
+  if((ball - cornerPoint).norm() > mdfzCornerSetupRadius)
+    return;
+
+  Vector2f target;
+  if(own)
+    // 近门柱外侧: 离门线 1 米, 比门柱再往边线偏 0.8 米. 短传点和补射点都在这里.
+    target = Vector2f(theFieldDimensions.xPosOpponentGoalLine - 1000.f,
+                      side * (theFieldDimensions.yPosLeftGoal + 800.f));
+  else
+    // 防守: 一个贴近门柱内侧, 一个守点球点. 用"谁更靠近门"来分工, 避免两个人都跑同一点.
+    {
+      const Vector2f nearPost(theFieldDimensions.xPosOwnGoalLine + 900.f,
+                              side * (theFieldDimensions.yPosLeftGoal - 300.f));
+      const Vector2f penaltySpot(theFieldDimensions.xPosOwnPenaltyMark, 0.f);
+      float myDistanceToPost = (nearPost - self.pose.translation).norm();
+      bool someoneCloser = false;
+      for(const Agent& peer : agents)
+        if(peer.number != self.number && !peer.isGoalkeeper && peer.isUpright && peer.pose.isFinite() &&
+           TeamActivityPolicy::fresh(theFrameInfo.time, peer.timestamp, 1200) &&
+           (nearPost - peer.pose.translation).norm() < myDistanceToPost - 200.f)
+          someoneCloser = true;
+      target = someoneCloser ? penaltySpot : nearPost;
+    }
+
+  if(!target.allFinite())
+    return;
+  if((target - theRobotPose.translation).norm() < 350.f)
+    return;
+  const Angle facing((Vector2f(own ? theFieldDimensions.xPosOpponentGoalLine : 0.f, 0.f) - target).angle());
+  request = SkillRequest::Builder::walkTo(Pose2f(facing, target.x(), target.y()));
+  if(theFrameInfo.getTimeSince(mdfzLastCornerLog) >= 1000)
+  {
+    mdfzLastCornerLog = theFrameInfo.time;
+    std::printf("MDFZ_CORNER side=%s self=%d ball=%.0f,%.0f target=%.0f,%.0f myd=%.0f\n",
+                own ? "own" : "opp", self.number, ball.x(), ball.y(), target.x(), target.y(),
+                (target - theRobotPose.translation).norm());
+    std::fflush(stdout);
+  }
+}

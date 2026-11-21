@@ -106,6 +106,10 @@ public:
 
 private:
 
+  // v45: 角球站位(自己角球去近门柱接应, 对方角球守近门柱/点球点).
+  void applyCornerSetPiece(SkillRequest& request, const Agent& self);
+  unsigned mdfzLastCornerLog = 0;
+
   unsigned mdfzLastKickStamp = 0; /**< 踢球计数遥测用的上一帧 lastKickTimestamp. */
   /**
    * Updates the skill request.
