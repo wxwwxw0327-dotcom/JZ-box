@@ -1312,7 +1312,14 @@ void WhiteFleetSkillBehaviorControl::executeRequest()
         std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
         (kb-theRobotPose.translation).norm()<2500.f;
     if(kickoffFrame)
-      DirectKickOff();
+    {
+      // v123: 照 v33 的开球本质 -- 不经过 DirectKickOff 的任何 admitted/legal/证据判断,
+      // 直接朝对方球门方向满力大脚.
+      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
+      GoToBallAndKick({.targetDirection=Angle::normalize((aim-kb).angle()-theRobotPose.rotation),
+                       .kickType=KickInfo::rlKickDynamicOld,
+                       .length=std::numeric_limits<float>::max()});
+    }
     else
       PlayBall();
   }
