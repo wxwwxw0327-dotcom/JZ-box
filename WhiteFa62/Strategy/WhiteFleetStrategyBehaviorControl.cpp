@@ -165,7 +165,9 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
                   static_cast<int>(skillRequest.skill));
       std::fflush(stdout);
     }
-    if(nearCentre && myD<1800.f && myD<oppD)
+    // v122: 去掉 myD<oppD -- 对面一靠近这个条件就假, 等于把开球权交给对面.
+    // oppD 只留在日志里观察.
+    if(nearCentre && myD<2500.f)
       skillRequest=SkillRequest::Builder::shoot();
   }
 

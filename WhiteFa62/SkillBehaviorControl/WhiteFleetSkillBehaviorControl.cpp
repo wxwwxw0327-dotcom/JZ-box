@@ -1302,7 +1302,19 @@ void WhiteFleetSkillBehaviorControl::executeRequest()
           theSkillRequest.skill == SkillRequest::dribble ||
           theSkillRequest.skill == SkillRequest::clear)
   {
-    PlayBall();
+    // v122: 平台从不下发 ownKickOff(GameStateProvider 里 secondaryTime>0 才返回),
+    // 所以 PlayBall::state(kickOff) 和 DirectKickOff 的 legal 判断永远进不去.
+    // 在 PLAY 首帧、球还在中点、我在 2.5m 内时直接走原生开球技能(大脚).
+    const Vector2f kb=theFieldBall.positionOnField;
+    const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
+        !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
+        theFieldBall.ballWasSeen(300)&&kb.allFinite()&&
+        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
+        (kb-theRobotPose.translation).norm()<2500.f;
+    if(kickoffFrame)
+      DirectKickOff();
+    else
+      PlayBall();
   }
   else if(theSkillRequest.skill == SkillRequest::waitShoot)
     GoToBallWaitAndKick();
