@@ -1288,10 +1288,13 @@ void WhiteFleetSkillBehaviorControl::executeRequest()
   // v125: 开球帧优先. 原来这段在 skill==shoot/pass/dribble/clear 分支里,
   // 但开球时原生给的 skill 是 walk/stand, 那个分支根本不进 -- 所以一直不开球.
   {
-    const Vector2f kb=theFieldBall.positionOnField;
+    // v126: 不再硬要求"最近 300ms 看见球". 发球人站着背对球时 ballWasSeen 会失败,
+    // 整个开球判断就被跳过 -- 录像里"该开球的那台站着不动"就是这个.
+    // 开球帧的球就在中点, 看不见时直接用 (0,0).
+    const Vector2f kb=theFieldBall.ballWasSeen(1000)&&theFieldBall.positionOnField.allFinite()
+        ? theFieldBall.positionOnField : Vector2f(0.f,0.f);
     const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
         !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
-        theFieldBall.ballWasSeen(300)&&kb.allFinite()&&
         std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
         (kb-theRobotPose.translation).norm()<2500.f;
     if(kickoffFrame)
