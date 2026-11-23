@@ -268,6 +268,12 @@ protected:
   void handleWalkSpeedAtFieldBorder();
 
   unsigned timeWhenAnnouncedEmptySkillRequest = 0; /**< The last time when the robot said that its skill request is empty. */
+  /** v127: kickoff blast latch. One episode per game state event, opened at the first frame in which every
+   * gate holds (so a late playerState release / late ball model still gets its own window), and it is
+   * bounded in time so that a ball that merely wanders near the centre spot mid-match cannot re-trigger it. */
+  unsigned kickoffBlastEvent = 0; /**< The game state event the latch belongs to. */
+  unsigned kickoffBlastOpened = 0; /**< First frame of this episode in which the gates held. */
+  unsigned kickoffBlastLogged = 0; /**< Last diagnostic print of the episode. */
   unsigned lastBallOutOfFieldWaitTimestamp = 0; /**< The last time HandleBallOutOfField was active. */
   WhiteFleetBoosterPickupControl::Gate physicalPickupGate; /**< Survives CABSL initial-state fallbacks. */
   bool physicalPickupVisited = false;
