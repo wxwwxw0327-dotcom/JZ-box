@@ -139,38 +139,6 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     }
   }
 
-  // v117: 平台的开球状态序列是 setup/waitFor -> 直接 playing(没有 ownKickOff),
-  // 日志 OWN_KICKOFF_EVIDENCE 里 raw_state=3, 所以任何 state==ownKickOff 的判断都不会触发.
-  // 改成: playing 刚开始的 3 秒内, 球还在中点附近, 我比所有对手都更靠近球 -> 直接出脚.
-  // v118: 去掉 3 秒时间窗 -- v117 在平台上没触发, 最可能是 3 秒内发球人还没走到 1500mm 以内.
-  // 现在只看物理条件: 球在中点附近 + 我是离球最近的人.
-  if(self && !wasPenalized && !theGameState.ownTeam.isGoalkeeper(self->number) &&
-     theGameState.state==GameState::playing)
-  {
-    const Vector2f kb=theFieldBall.positionOnField;
-    const float myD=(kb-theRobotPose.translation).norm();
-    float oppD=1e9f;
-    for(const auto& o:theGlobalOpponentsModel.opponents)
-      if(o.position.allFinite())
-        oppD=std::min(oppD,(o.position-kb).norm());
-    const bool nearCentre=std::abs(kb.x())<600.f && std::abs(kb.y())<600.f;
-    static thread_local unsigned mdfzOwnKickLog=0;
-    if(theFrameInfo.getTimeSince(mdfzOwnKickLog)>=500)
-    {
-      mdfzOwnKickLog=theFrameInfo.time;
-      std::printf("MDFZ_OWNKICK_DEBUG self=%d state=%d t=%u seen=%d myd=%.0f oppd=%.0f ball=%.0f,%.0f skill=%d\n",
-                  self->number,static_cast<int>(theGameState.state),
-                  theFrameInfo.getTimeSince(theGameState.timeWhenStateStarted),
-                  theFieldBall.ballWasSeen(1000)?1:0,myD,oppD,kb.x(),kb.y(),
-                  static_cast<int>(skillRequest.skill));
-      std::fflush(stdout);
-    }
-    // v122: 去掉 myD<oppD -- 对面一靠近这个条件就假, 等于把开球权交给对面.
-    // oppD 只留在日志里观察.
-    if(nearCentre && myD<2500.f)
-      skillRequest=SkillRequest::Builder::shoot();
-  }
-
   theBehavior.postProcess();
 
   if(theBehaviorParameters.requireFreshTeamActivity && theFrameInfo.getTimeSince(lastTeamActivityDiagnostic) >= 2000)
