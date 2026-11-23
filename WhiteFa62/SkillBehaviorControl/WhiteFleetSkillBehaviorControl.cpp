@@ -1285,24 +1285,52 @@ bool WhiteFleetSkillBehaviorControl::handleGoalKickObservation()
 
 void WhiteFleetSkillBehaviorControl::executeRequest()
 {
-  // v125: 开球帧优先. 原来这段在 skill==shoot/pass/dribble/clear 分支里,
-  // 但开球时原生给的 skill 是 walk/stand, 那个分支根本不进 -- 所以一直不开球.
+  // v128: 开球大脚. v126 的两个问题在这里修:
+  //   1) 没有时间闸 -- 球滚回中圈就会每帧满力抽, 抢掉 Zweikampf/带球/传球;
+  //   2) 没有诊断 -- 分不清"门没开"和"踢了但被覆盖".
   {
-    // v126: 不再硬要求"最近 300ms 看见球". 发球人站着背对球时 ballWasSeen 会失败,
-    // 整个开球判断就被跳过 -- 录像里"该开球的那台站着不动"就是这个.
-    // 开球帧的球就在中点, 看不见时直接用 (0,0).
-    const Vector2f kb=theFieldBall.ballWasSeen(1000)&&theFieldBall.positionOnField.allFinite()
-        ? theFieldBall.positionOnField : Vector2f(0.f,0.f);
-    const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
+    static thread_local unsigned blastEvent=0, blastOpened=0, blastCount=0, blastLogged=0, activeSince=0;
+    if(theGameState.timeWhenStateStarted!=blastEvent)
+    { blastEvent=theGameState.timeWhenStateStarted; blastOpened=0; blastCount=0; blastLogged=0; }
+    if(theGameState.playerState==GameState::active&&activeSince==0)
+      activeSince=theFrameInfo.time;
+
+    Vector2f kb=theFieldBall.positionOnField;
+    if(!(theFieldBall.ballWasSeen(1000)&&kb.allFinite()))
+      kb=Vector2f(0.f,0.f);
+    if(!kb.allFinite())
+      kb=Vector2f(0.f,0.f);
+
+    const float myD=(kb-theRobotPose.translation).norm();
+    const bool gate=theGameState.state==GameState::playing&&!theGameState.stopped&&
         !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
-        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
-        (kb-theRobotPose.translation).norm()<2500.f;
-    if(kickoffFrame)
+        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&myD<2500.f;
+    if(gate&&!blastOpened)
+      blastOpened=theFrameInfo.time;
+    const bool inWindow=blastOpened!=0&&theFrameInfo.time>=blastOpened&&
+        theFrameInfo.time-blastOpened<=1500u;
+
+    if(gate&&inWindow)
     {
       const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
+      const MotionRequest::Motion before=theMotionRequest.motion;
       GoToBallAndKick({.targetDirection=Angle::normalize((aim-kb).angle()-theRobotPose.rotation),
                        .kickType=KickInfo::rlKickDynamicOld,
                        .length=std::numeric_limits<float>::max()});
+      ++blastCount;
+      if(theFrameInfo.getTimeSince(blastLogged)>=200)
+      {
+        blastLogged=theFrameInfo.time;
+        std::printf("KICKOFF_BLAST team=%u self=%d state=%u since_state=%u since_open=%u active_since=%d playerState=%d motion_before=%d ball=%.0f,%.0f rel=%.0f count=%u\n",
+            Global::getSettings().teamNumber,theGameState.playerNumber,
+            static_cast<unsigned>(theGameState.state),
+            theGameState.timeWhenStateStarted?theFrameInfo.time-theGameState.timeWhenStateStarted:0u,
+            blastOpened?theFrameInfo.time-blastOpened:0u,
+            activeSince?static_cast<int>(theFrameInfo.time-activeSince):-1,
+            static_cast<int>(theGameState.playerState),static_cast<int>(before),
+            kb.x(),kb.y(),myD,blastCount);
+        std::fflush(stdout);
+      }
       return;
     }
   }
