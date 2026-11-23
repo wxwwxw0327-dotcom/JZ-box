@@ -1,7 +1,7 @@
 /**
- * @file FallRequest.cpp
+ * @file WhiteFleetFallRequest.cpp
  *
- * This file implements the FallRequest skill.
+ * This file implements the WhiteFleetFallRequest skill.
  *
  * @author Philip Reichenberg
  */

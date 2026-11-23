@@ -1,5 +1,5 @@
 /**
- * @file HeadControl.cpp
+ * @file WhiteFleetHeadControl.cpp
  *
  * This file implements head control skills.
  *
@@ -208,7 +208,7 @@ option((WhiteFleetSkillBehaviorControl) LookAtBallAndTarget,
   walkingAngle = ballPositionAngle * (1.f - ratio) + walkingAngle * ratio;
 
   const bool forceLookAtBall = std::abs(walkingAngle - ballPositionAngle) <= thresholdAngle
-                               || theBallModel.estimate.velocity.squaredNorm() > sqr(50.f);
+                               || theBallModel.estimate.velocity.squaredNorm() > 0;
 
   initial_state(execute)
   {
@@ -233,7 +233,7 @@ option((WhiteFleetSkillBehaviorControl) LookAtBallAndTarget,
          (!theHeadMotionInfo.moving && theFrameInfo.getTimeSince(lastTargetSwitch) > minTimeBetweenTargetSwitch && headNearTarget) ||
          theFrameInfo.getTimeSince(lastTargetSwitch) > maxWalkTargetTime)
       {
-        if(std::abs(walkingAngle - ballPositionAngle) <= thresholdAngle || theBallModel.estimate.velocity.squaredNorm() > sqr(50.f))
+        if(std::abs(walkingAngle - ballPositionAngle) <= thresholdAngle || theBallModel.estimate.velocity.squaredNorm() > 0)
           goto lookAtBall;
         goto lookAtMiddle;
       }

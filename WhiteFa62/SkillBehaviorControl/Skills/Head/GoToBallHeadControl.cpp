@@ -1,7 +1,7 @@
 /**
- * @file GoToBallHeadControl.cpp
+ * @file WhiteFleetGoToBallHeadControl.cpp
  *
- * This file implements the GoToBallHeadControl skill.
+ * This file implements the WhiteFleetGoToBallHeadControl skill.
  *
  * @author Arne Hasselbring
  */

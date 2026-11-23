@@ -1,7 +1,7 @@
 /**
- * @file PenaltyStrikerGoToBallAndKick.cpp
+ * @file WhiteFleetPenaltyStrikerGoToBallAndKick.cpp
  *
- * This file implements the PenaltyStrikerGoToBallAndKick skill.
+ * This file implements the WhiteFleetPenaltyStrikerGoToBallAndKick skill.
  *
  * @author Arne Hasselbring (based on old behavior by Andreas Stolpmann)
  */

@@ -1,7 +1,7 @@
 /**
- * @file WalkToPose.cpp
+ * @file WhiteFleetWalkToPose.cpp
  *
- * This file implements the WalkToPose skill.
+ * This file implements the WhiteFleetWalkToPose skill.
  *
  * @author Arne Hasselbring
  */

@@ -1,7 +1,7 @@
 /**
- * @file Mark.cpp
+ * @file WhiteFleetMark.cpp
  *
- * This file implements the Mark skill.
+ * This file implements the WhiteFleetMark skill.
  *
  * @author Arne Hasselbring
  */
@@ -21,7 +21,7 @@ option((WhiteFleetSkillBehaviorControl) Mark,
       const Vector2f gloObstacleToBlock = theRobotPose * target;
       const Vector2f positionOnField = gloObstacleToBlock + (Vector2f(theFieldDimensions.xPosOwnGoalLine, 0.f) - gloObstacleToBlock).normalized(distToMarkedRobot);
       const Pose2f markPose = theRobotPose.inverse() * Pose2f(((ballPositionField - positionOnField).normalized() + (gloObstacleToBlock - positionOnField).normalized()).angle(), positionOnField);
-      DRAW_ROBOT_POSE("option:Mark:markPose", markPose, ColorRGBA::red);
+      DRAW_ROBOT_POSE("option:WhiteFleetMark:markPose", markPose, ColorRGBA::red);
       LookActive({.withBall = true});
       WalkToPoint({.target = markPose});
     }

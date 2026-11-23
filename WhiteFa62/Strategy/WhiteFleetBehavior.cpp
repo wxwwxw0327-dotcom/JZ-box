@@ -11,9 +11,9 @@
 #include "BallSearch.h"
 #include "ActiveRoles/ClosestToTeamBall.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
-#include "WhiteFleetRoleFreeKickWall.h"
+#include "ActiveRoles/FreeKickWall.h"
 #include "ActiveRoles/KickOffForward.h"
-#include "WhiteFleetRolePlayBall.h"
+#include "ActiveRoles/PlayBall.h"
 #include "PositionRoles/Defender.h"
 #include "PositionRoles/Forward.h"
 #include "PositionRoles/Goalkeeper.h"
@@ -50,9 +50,9 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   theTeamBallModel(theTeamBallModel),
   theWalkingEngineOutput(theWalkingEngineOutput)
 {
-  activeRoles[ActiveRole::playBall] = new WhiteFleetRolePlayBall;
+  activeRoles[ActiveRole::playBall] = new PlayBall;
   activeRoles[ActiveRole::kickOffForward] = new KickOffForward;
-  activeRoles[ActiveRole::freeKickWall] = new WhiteFleetRoleFreeKickWall;
+  activeRoles[ActiveRole::freeKickWall] = new FreeKickWall;
   activeRoles[ActiveRole::closestToTeamBall] = new ClosestToTeamBall;
 
   positionRoles[PositionRole::goalkeeper] = new Goalkeeper;
@@ -113,7 +113,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   {
     if(strategy == Strategy::none)
       continue;
-    InExprMapFile stream(std::string("Behavior/Strategies/") + TypeRegistry::getEnumName(strategy) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/Strategies/") + TypeRegistry::getEnumName(strategy) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> strategies[strategy];
 
@@ -128,7 +128,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   {
     if(tactic == Tactic::none)
       continue;
-    InExprMapFile stream(std::string("Behavior/Tactics/") + TypeRegistry::getEnumName(tactic) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/Tactics/") + TypeRegistry::getEnumName(tactic) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> tactics[tactic];
 #ifndef NDEBUG
@@ -140,7 +140,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   setPlays.resize(SetPlay::Type_Info::numOfElements, nullptr);
   FOREACH_ENUM(OwnKickOff::Type, ownKickOff)
   {
-    InExprMapFile stream(std::string("Behavior/KickOffs/") + TypeRegistry::getEnumName(ownKickOff) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/KickOffs/") + TypeRegistry::getEnumName(ownKickOff) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> ownKickOffs[ownKickOff];
 #ifndef NDEBUG
@@ -150,7 +150,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   }
   FOREACH_ENUM(OpponentKickOff::Type, opponentKickOff)
   {
-    InExprMapFile stream(std::string("Behavior/KickOffs/") + TypeRegistry::getEnumName(opponentKickOff) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/KickOffs/") + TypeRegistry::getEnumName(opponentKickOff) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> opponentKickOffs[opponentKickOff];
 #ifndef NDEBUG
@@ -160,7 +160,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   }
   FOREACH_ENUM(OwnPenaltyKick::Type, ownPenaltyKick)
   {
-    InExprMapFile stream(std::string("Behavior/PenaltyKicks/") + TypeRegistry::getEnumName(ownPenaltyKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/PenaltyKicks/") + TypeRegistry::getEnumName(ownPenaltyKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> ownPenaltyKicks[ownPenaltyKick];
 #ifndef NDEBUG
@@ -170,7 +170,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   }
   FOREACH_ENUM(OpponentPenaltyKick::Type, opponentPenaltyKick)
   {
-    InExprMapFile stream(std::string("Behavior/PenaltyKicks/") + TypeRegistry::getEnumName(opponentPenaltyKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/PenaltyKicks/") + TypeRegistry::getEnumName(opponentPenaltyKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> opponentPenaltyKicks[opponentPenaltyKick];
 #ifndef NDEBUG
@@ -180,7 +180,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   }
   FOREACH_ENUM(OwnFreeKick::Type, ownFreeKick)
   {
-    InExprMapFile stream(std::string("Behavior/FreeKicks/") + TypeRegistry::getEnumName(ownFreeKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/FreeKicks/") + TypeRegistry::getEnumName(ownFreeKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> ownFreeKicks[ownFreeKick];
 #ifndef NDEBUG
@@ -190,7 +190,7 @@ WhiteFleetBehavior::WhiteFleetBehavior(const BallSearchParticles& theBallSearchP
   }
   FOREACH_ENUM(OpponentFreeKick::Type, opponentFreeKick)
   {
-    InExprMapFile stream(std::string("Behavior/FreeKicks/") + TypeRegistry::getEnumName(opponentFreeKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
+    InExprMapFile stream(std::string("WhiteFleetBehavior/FreeKicks/") + TypeRegistry::getEnumName(opponentFreeKick) + ".cfg", symbols, ~bit(InMap::missingAttribute));
     ASSERT(stream.exists());
     stream >> opponentFreeKicks[opponentFreeKick];
 #ifndef NDEBUG

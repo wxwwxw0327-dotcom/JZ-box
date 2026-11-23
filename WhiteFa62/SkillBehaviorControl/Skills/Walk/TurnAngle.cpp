@@ -1,7 +1,7 @@
 /**
- * @file TurnAngle.cpp
+ * @file WhiteFleetTurnAngle.cpp
  *
- * This file implements the TurnAngle skill
+ * This file implements the WhiteFleetTurnAngle skill
  * that uses the OdometryData to keep track of the orientation
  * (instead of the RobotPose, which means that localization jumps
  * do not affect this skill).

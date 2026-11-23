@@ -15,7 +15,7 @@
 
 namespace ManualCameraCalibration
 {
-  struct SampleConfigurationInfo
+  struct WhiteFleetSampleConfigurationInfo
   {
     SampleConfigurationRequest request;
   };
@@ -31,8 +31,8 @@ option((WhiteFleetSkillBehaviorControl) ManualCameraCalibration,
             (bool) useGoalAreaConnectingLineDistance),
        vars((bool)(false) finishedCalibration,
             (unsigned)(0) totalNumOfSamples,
-            (std::vector<SampleConfigurationInfo>) sampleConfigurations,
-            (std::vector<SampleConfigurationInfo>::iterator) currentSampleConfiguration,
+            (std::vector<WhiteFleetSampleConfigurationInfo>) sampleConfigurations,
+            (std::vector<WhiteFleetSampleConfigurationInfo>::iterator) currentSampleConfiguration,
             (CalibrationRequest) theCalibrationRequest))
 {
   theCalibrationRequest.preciseJointPositions = true;
@@ -46,7 +46,7 @@ option((WhiteFleetSkillBehaviorControl) ManualCameraCalibration,
     request.headTilt = headTilt;
     request.sampleTypes = sampleTypes;
 
-    SampleConfigurationInfo config = { request };
+    WhiteFleetSampleConfigurationInfo config = { request };
     sampleConfigurations.push_back(config);
     FOREACH_ENUM(SampleType, sampleType)
       if(sampleTypes & bit(sampleType))

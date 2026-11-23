@@ -7,7 +7,7 @@
  * gates. No private opponent identity, heading or simulator truth is used. */
 namespace WhiteFleetC9ForwardFlank
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   inline bool directed(K::Point ball,K::Point target,int side)
   {
     return K::finite(ball)&&K::finite(target)&&(side==1||side==-1)

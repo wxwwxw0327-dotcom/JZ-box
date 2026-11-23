@@ -1,5 +1,5 @@
 /**
- * @file Output.h
+ * @file WhiteFleetOutput.h
  *
  * This file declares skills that directly set the behavior's output.
  *

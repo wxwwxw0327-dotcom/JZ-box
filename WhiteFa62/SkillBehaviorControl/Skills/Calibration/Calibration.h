@@ -1,5 +1,5 @@
 /**
- * @file Calibration.h
+ * @file WhiteFleetCalibration.h
  *
  * This file declares complex skills related to robot calibration.
  *

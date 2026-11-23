@@ -1,7 +1,7 @@
 /**
- * @file WalkAtAbsoluteSpeed.cpp
+ * @file WhiteFleetWalkAtAbsoluteSpeed.cpp
  *
- * This file implements the WalkAtAbsoluteSpeed skill.
+ * This file implements the WhiteFleetWalkAtAbsoluteSpeed skill.
  *
  * @author Arne Hasselbring
  */

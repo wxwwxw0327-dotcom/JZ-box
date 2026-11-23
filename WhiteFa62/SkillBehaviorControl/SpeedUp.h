@@ -1,5 +1,5 @@
 /**
- * @file SpeedUp.h
+ * @file WhiteFleetSpeedUp.h
  * This file changes some definitions for faster compilation.
  * When compiling the main behavior class, this file must not be included.
  *

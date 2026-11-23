@@ -1,7 +1,7 @@
 /**
- * @file BehaviorState.cpp
+ * @file WhiteFleetBehaviorState.cpp
  *
- * This file implements the BehaviorState skill.
+ * This file implements the WhiteFleetBehaviorState skill.
  *
  * @author Philip Reichenberg
  */

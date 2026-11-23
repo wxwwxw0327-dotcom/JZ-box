@@ -10,7 +10,7 @@
 #include "WhiteFleetC15DefenceAdaptive.h"
 #include "WhiteFleetC15RollingRendezvous.h"
 
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   enum class Action : unsigned {none=0,hold=1,prepare=2,kick=3,run=4,support=5,finish=6,pursue=7,prestart=8,preload=9,gapWalk=10};
   enum class Stage : unsigned {idle,waiting,preparing,armed,flight,capture,settling,ended};

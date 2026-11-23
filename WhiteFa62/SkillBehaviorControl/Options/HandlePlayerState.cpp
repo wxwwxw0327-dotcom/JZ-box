@@ -13,14 +13,14 @@ option((WhiteFleetSkillBehaviorControl) HandlePlayerState)
       case GameState::active:
         if(theExtendedGameState.wasPenalized())
         {
-          ANNOTATION("WhiteFleetBehavior", "Unpenalized");
+          ANNOTATION("Behavior", "Unpenalized");
           SystemCall::say("Not penalized");
         }
         goto playing;
       default:
         if(!theExtendedGameState.wasPenalized())
         {
-          ANNOTATION("WhiteFleetBehavior", "Penalized " << TypeRegistry::getEnumName(theGameState.playerState));
+          ANNOTATION("Behavior", "Penalized " << TypeRegistry::getEnumName(theGameState.playerState));
           SystemCall::say("Penalized");
         }
         goto penalized;

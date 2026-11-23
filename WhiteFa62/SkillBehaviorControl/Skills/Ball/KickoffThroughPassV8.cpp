@@ -1,6 +1,5 @@
 /** Scoped kickoff through-pass outputs. Session/ownership decisions live upstream. */
 #include "WhiteFleetSkillBehaviorControl.h"
-#include "WhiteFleetSimPhysical.h"
 #include "WhiteFleetC15KickoffSwitch.h"
 #include "WhiteFleetC9ForwardFlank.h"
 #include "WhiteFleetC15RollingRendezvous.h"
@@ -28,7 +27,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
       const bool ready=theGameState.state==GameState::setupOwnKickOff;
       const bool set=theGameState.state==GameState::waitForOwnKickOff;
       const auto profile=WhiteFleetK1V21MatchProfile::guardedPrepare(WhiteFleetC15KickoffSwitch::configuredForwardPrepareParams(theBehaviorParameters.c15EarlyStart,theBehaviorParameters.c15RestoreProvenPool,theBehaviorParameters.c15DefenceAdaptiveAngle,theBehaviorParameters.c15InsideCornerLane,theBehaviorParameters.c15RaceRendezvous,theBehaviorParameters.c15DirectCenterKickoff,theBehaviorParameters.c15CenterFastKickoff,theBehaviorParameters.c15ReceiverPrepareHold,theBehaviorParameters.c15ReceiverBallApproach,theBehaviorParameters.c15ReceiverFollowFromRelease,theBehaviorParameters.c15StableKickAim,theBehaviorParameters.c15ReceiverEarlyNative,theBehaviorParameters.c15ReceiverGapWalk,theBehaviorParameters.c15FirstPassClearance,theBehaviorParameters.c15ForwardPrepare),theFieldDimensions.xPosHalfwayLine,theFieldDimensions.fieldLinesWidth,theBehaviorParameters.illegalAreasLargeDistance);
-      const WhiteFleetKickoffThroughV8::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
+      const KickoffThroughV8::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
           theFieldDimensions.xPosOpponentPenaltyArea,theFieldDimensions.yPosLeftTouchline,theFieldDimensions.yPosLeftGoal};
       const bool fixedArrivalMode=theBehaviorParameters.c15ReceiverFixedRunToArrival;
       const bool simFlow=theBehaviorParameters.c15ReceiverSimFlow&&theBehaviorParameters.c15ReceiverSimMaxRun
@@ -37,10 +36,10 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
           &&theBehaviorParameters.c15EarlyChannelReceive&&theBehaviorParameters.c15ReceiverLocalStep
           &&!theBehaviorParameters.c15ReceiverLowerChannel&&!theBehaviorParameters.c15ReceiverShortestIntercept
           &&profile.firstPassPrepareAdvance==250.f&&receiver&&theGameState.playerNumber==2
-          &&WhiteFleetSimPhysical::simulated()
-          &&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2;
+          &&SystemCall::getMode()==SystemCall::simulatedRobot
+          &&Global::getSettings().playerNumber==2;
       const bool physicalFlow=theBehaviorParameters.c15ReceiverPhysicalFlow
-          &&WhiteFleetSimPhysical::physical()&&WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver()
+          &&SystemCall::getMode()==SystemCall::physicalRobot&&WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver()
           &&theBehaviorParameters.c15EarlyChannelReceive&&theBehaviorParameters.c15ReceiverLocalStep
           &&!theBehaviorParameters.c15ReceiverSimMaxRun&&!theBehaviorParameters.c15ReceiverSimFlow
           &&!theBehaviorParameters.c15ReceiverFixedDirect&&!fixedArrivalMode
@@ -77,7 +76,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
           WhiteFleetC15RollingRendezvous::approachingOwnContract({theFieldBall.positionOnField.x(),theFieldBall.positionOnField.y()},
               {theSkillRequest.kickoffThroughLaunch.x(),theSkillRequest.kickoffThroughLaunch.y()},
               {theSkillRequest.kickoffThroughTarget.x(),theSkillRequest.kickoffThroughTarget.y()})&&
-          (profile.directCenter?WhiteFleetKickoffThroughV8::directCenterDomain(
+          (profile.directCenter?KickoffThroughV8::directCenterDomain(
               {theSkillRequest.kickoffThroughTarget.x(),theSkillRequest.kickoffThroughTarget.y()},field,profile,300.f):
            WhiteFleetC15RollingRendezvous::endpoint({theSkillRequest.kickoffThroughTarget.x(),theSkillRequest.kickoffThroughTarget.y()},field,profile,300.f))&&
           (!playing||!theIllegalAreas.isPositionIllegal(theFieldBall.positionOnField,150.f));
@@ -98,7 +97,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
           &&theFieldBall.positionRelative.allFinite()&&theFieldBall.positionOnField.allFinite()&&theBallModel.estimate.position.allFinite()
           &&theFieldDimensions.isInsideField(theRobotPose.translation)&&theFieldDimensions.isInsideField(theFieldBall.positionOnField)
           &&theFieldBall.positionRelative.norm()<=650.f
-          &&WhiteFleetKickoffThroughV8::receiverBallInFront({theFieldBall.positionRelative.x(),theFieldBall.positionRelative.y()});
+          &&KickoffThroughV8::receiverBallInFront({theFieldBall.positionRelative.x(),theFieldBall.positionRelative.y()});
       const bool allowed=WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff) && theSkillRequest.kickoffThrough
           && (kicker||receiver) && !theGameState.isGoalkeeper()
           && theSkillRequest.kickoffThroughKicker!=theSkillRequest.kickoffThroughReceiver
@@ -132,7 +131,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
       };
       if(theBehaviorParameters.c15ReceiverSimMaxRun&&receiver&&stageAction==7)
       {
-        const bool simOnly=WhiteFleetSimPhysical::simulated()&&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)
+        const bool simOnly=SystemCall::getMode()==SystemCall::simulatedRobot
             &&Global::getSettings().playerNumber==2&&theGameState.playerNumber==2;
         if(!simOnly){LookActive({.withBall=false});Stand();fixedGuardLog("SIM_max_run_forbidden",32768u);return;}
         const unsigned event=theSkillRequest.kickoffThroughEvent;
@@ -498,7 +497,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
             const float targetHeading=input.fixedDirect?std::atan2(p.y()-input.robot.y,p.x()-input.robot.x):std::atan2(-input.ball.y,field.opponentGoal-input.ball.x);
             const auto path=thePathPlanner.plan({targetHeading,p},{1.f,1.f,1.f},fixedArrivalMode&&!input.fixedOwnFresh);
             if(path.path.empty())for(const auto& o:theObstacleModel.obstacles)
-              if(WhiteFleetKickoffThroughV8::pointSegmentDistance({o.center.x(),o.center.y()},{},{local.x(),local.y()})<600.f)return E::NativePath{};
+              if(KickoffThroughV8::pointSegmentDistance({o.center.x(),o.center.y()},{},{local.x(),local.y()})<600.f)return E::NativePath{};
             std::vector<E::Circle> circles;for(const auto& s:path.path)
               circles.push_back({{s.obstacle.center.x(),s.obstacle.center.y()},s.obstacle.radius,s.clockwise});
             auto result=E::nativePath({local.x(),local.y()},circles);
@@ -652,7 +651,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
               c15ReceiverRoute.invalidate();c15ReceiverRoute.plannedAt=theFrameInfo.time;
               c15ReceiverRoute.seen=seen;
             }
-            const auto assess=[&](WhiteFleetKickoffThroughV8::Point body)
+            const auto assess=[&](KickoffThroughV8::Point body)
             {
               const Vector2f point(body.x,body.y);
               if(!theFieldDimensions.isInsideField(point)||theIllegalAreas.isPositionIllegal(point,150.f))
@@ -663,7 +662,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
               // mean no path. Never count a visibly blocked fallback as clear.
               if(route.path.empty())
                 for(const auto& o:theObstacleModel.obstacles)
-                  if(WhiteFleetKickoffThroughV8::pointSegmentDistance({o.center.x(),o.center.y()},{},
+                  if(KickoffThroughV8::pointSegmentDistance({o.center.x(),o.center.y()},{},
                       {relative.x(),relative.y()})<600.f)return WhiteFleetC15ReceiverRoute::Route{};
               std::vector<WhiteFleetC15ReceiverRoute::Circle> circles;
               for(const auto& s:route.path)
@@ -696,7 +695,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
                   // estimate.position is already current; forecast t, not age+t.
                   const Vector2f b=theRobotPose*BallPhysics::propagateBallPosition(currentBall,
                       theBallModel.estimate.velocity,t,theBallSpecification);
-                  return WhiteFleetKickoffThroughV8::Point{b.x(),b.y()};
+                  return KickoffThroughV8::Point{b.x(),b.y()};
                 };
                 const float remaining=std::max(0.f,static_cast<float>(std::min(profile.total,profile.flight))-
                     static_cast<float>(theFrameInfo.time-theSkillRequest.kickoffThroughEvent))*.001f;
@@ -789,7 +788,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
       {LookActive({.withBall=true});Stand();return;}
 
       const Vector2f point=theSkillRequest.kickoffThroughBodyTarget;
-      const auto approach=WhiteFleetKickoffThroughV8::receiverBallApproach(
+      const auto approach=KickoffThroughV8::receiverBallApproach(
           {theSkillRequest.kickoffThroughLaunch.x(),theSkillRequest.kickoffThroughLaunch.y()},
           {theSkillRequest.kickoffThroughTarget.x(),theSkillRequest.kickoffThroughTarget.y()},
           {theFieldBall.positionOnField.x(),theFieldBall.positionOnField.y()},
@@ -808,7 +807,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
         else LookActive({.withBall=true});
         Stand();return;
       }
-      const auto fieldPrepare=WhiteFleetKickoffThroughV8::preparePoint(field,profile,-1);
+      const auto fieldPrepare=KickoffThroughV8::preparePoint(field,profile,-1);
       // A live receiver preparation directive is the Session's native
       // stand_observe_native_release, not permission for another pose tweak.
       if((simFlow||physicalFlow)&&ownKickoff&&stageAction==2&&theSkillRequest.kickoffThroughPublish
@@ -833,7 +832,7 @@ option((WhiteFleetSkillBehaviorControl) KickoffThroughPassV8)
       {LookActive({.withBall=true});Stand();return;}
       if((profile.raceRendezvous||profile.directCenter)&&receiver&&ownKickoff&&stageAction==2&&
          (theRobotPose.translation-Vector2f(fieldPrepare.x,fieldPrepare.y)).norm()<=
-            WhiteFleetKickoffThroughV8::receiverPrepareHoldRadius(profile,theMotionInfo.executedPhase==MotionPhase::stand))
+            KickoffThroughV8::receiverPrepareHoldRadius(profile,theMotionInfo.executedPhase==MotionPhase::stand))
       {
         // Publish the real desired prepare point with ZERO motion. Actual
         // Stand (not walk-to-a-nearby-pose) lets native GSP collect its own

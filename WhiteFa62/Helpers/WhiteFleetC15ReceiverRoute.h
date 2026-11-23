@@ -7,9 +7,9 @@
  * No GT, altered friction, fixed field destination, or observation renewal. */
 namespace WhiteFleetC15ReceiverRoute
 {
-  using WhiteFleetKickoffThroughV8::Point;
-  using WhiteFleetKickoffThroughV8::finite;
-  using WhiteFleetKickoffThroughV8::distance;
+  using KickoffThroughV8::Point;
+  using KickoffThroughV8::finite;
+  using KickoffThroughV8::distance;
   constexpr float pi=3.14159265358979323846f;
   struct Circle {Point center{};float radius=0.f;bool clockwise=false;};
   struct Route {bool valid=false;float length=0.f,initialTurn=0.f,arcTurn=0.f;};
@@ -61,14 +61,14 @@ namespace WhiteFleetC15ReceiverRoute
   }
 
   template<class Predict,class Assess>
-  Choice choose(Point robot,Point contract,const WhiteFleetKickoffThroughV8::Field& field,
-                const WhiteFleetKickoffThroughV8::Params& p,float maxForward,float maxRotation,
+  Choice choose(Point robot,Point contract,const KickoffThroughV8::Field& field,
+                const KickoffThroughV8::Params& p,float maxForward,float maxRotation,
                 float remaining,Predict predict,Assess assess)
   {
     Choice best;
     const float speed=std::min(maxForward*p.receiverSpeedFactor,p.empiricalReceiverSpeed);
     const float yaw=std::min(maxRotation,1.5f);
-    if(!WhiteFleetKickoffThroughV8::paramsValid(p)||!WhiteFleetKickoffThroughV8::fieldValid(field)
+    if(!KickoffThroughV8::paramsValid(p)||!KickoffThroughV8::fieldValid(field)
        ||!std::isfinite(maxForward)||maxForward<=0.f||!std::isfinite(maxRotation)||maxRotation<=0.f
        ||!finite(robot)||!finite(contract)||!std::isfinite(speed)||speed<=0.f
        ||!std::isfinite(yaw)||yaw<=0.f||!std::isfinite(remaining)||remaining<=0.f)return best;

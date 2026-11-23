@@ -1,7 +1,7 @@
 /**
- * @file Block.cpp
+ * @file WhiteFleetBlock.cpp
  *
- * This file implements the Block skill.
+ * This file implements the WhiteFleetBlock skill.
  *
  * @author Arne Hasselbring
  */

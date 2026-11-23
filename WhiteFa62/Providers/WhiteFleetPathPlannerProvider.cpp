@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file Modules/BehaviorControl/WhiteFleetPathPlannerProvider/WhiteFleetPathPlannerProvider.cpp
  *
@@ -75,9 +74,6 @@ WhiteFleetPathPlannerProvider::WhiteFleetPathPlannerProvider()
 
 void WhiteFleetPathPlannerProvider::update(PathPlanner& pathPlanner)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetPathPlannerProvider");fleetProviderSeen=true;}
   DECLARE_DEBUG_DRAWING("module:WhiteFleetPathPlannerProvider:barriers", "drawingOnField");
   DECLARE_DEBUG_DRAWING("module:WhiteFleetPathPlannerProvider:obstacles", "drawingOnField");
   DECLARE_DEBUG_DRAWING("module:WhiteFleetPathPlannerProvider:expanded", "drawingOnField");

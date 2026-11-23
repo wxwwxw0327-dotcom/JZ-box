@@ -1,7 +1,7 @@
 /**
- * @file KeyFrameArms.cpp
+ * @file WhiteFleetKeyFrameArms.cpp
  *
- * This file implements the KeyFrameArms and KeyFrameSingleArm skills.
+ * This file implements the WhiteFleetKeyFrameArms and KeyFrameSingleArm skills.
  *
  * @author Arne Hasselbring
  */

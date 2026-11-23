@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetFieldRatingProvider.cpp
  * @author Philip Reichenberg
@@ -54,9 +53,6 @@ void WhiteFleetFieldRatingProvider::updateParameters()
 
 void WhiteFleetFieldRatingProvider::update(FieldRating& fieldRating)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetFieldRatingProvider");fleetProviderSeen=true;}
   ASSERT(interpolationZoneInOwnHalf > 0.f);
 
   fieldRating.potentialFieldOnly = [this](const float x, const float y, const bool calculateFieldDirection)
@@ -282,8 +278,8 @@ PotentialValue WhiteFleetFieldRatingProvider::getFieldBorderPotential(const floa
   // >> Own back
   if(backDistance < fieldBorderRange)
   {
-    float useDistance = std::max(1.f, std::min(theFieldBall.positionOnField.x() - theFieldDimensions.xPosOwnGoalLine, fieldBorderRange));
-    useDistance = x > theFieldBall.positionOnField.x() ? useDistance : fieldBorderRange;
+    float useDistance = std::max(1.f, std::min(theFieldBall.positionOnField.y() - theFieldDimensions.xPosOwnGoalLine, fieldBorderRange));
+    useDistance = x > theFieldBall.positionOnField.y() ? useDistance : fieldBorderRange;
     const float backBorderRating = functionLinear(backDistance, useDistance, fieldBorderRTV);
     pv.value += backBorderRating;
     if(calculateFieldDirection)
@@ -296,8 +292,8 @@ PotentialValue WhiteFleetFieldRatingProvider::getFieldBorderPotential(const floa
   // >> Opponent front
   if(forwardDistance < fieldBorderRange)
   {
-    float useDistance = std::max(1.f, std::min(theFieldDimensions.xPosOpponentGoalLine - theFieldBall.positionOnField.x(), fieldBorderRange));
-    useDistance = x < theFieldBall.positionOnField.x() ? useDistance : fieldBorderRange;
+    float useDistance = std::max(1.f, std::min(theFieldDimensions.xPosOpponentGoalLine - theFieldBall.positionOnField.y(), fieldBorderRange));
+    useDistance = x < theFieldBall.positionOnField.y() ? useDistance : fieldBorderRange;
     const float leftRightFrontBorderRating = y > theFieldDimensions.yPosLeftGoal - 1.5f * theFieldDimensions.goalPostRadius || y < theFieldDimensions.yPosRightGoal + 1.5f * theFieldDimensions.goalPostRadius ? functionLinear(forwardDistance, useDistance, fieldBorderRTV) : 0.f;
     pv.value += leftRightFrontBorderRating;
     if(calculateFieldDirection)

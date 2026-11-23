@@ -1,7 +1,7 @@
 /**
- * @file WalkToPointReady.cpp
+ * @file WhiteFleetWalkToPointReady.cpp
  *
- * This file implements an implementation for the WalkToPointReady skill.
+ * This file implements an implementation for the WhiteFleetWalkToPointReady skill.
  *
  * @author Arne Hasselbring
  * @author Fynn Böse

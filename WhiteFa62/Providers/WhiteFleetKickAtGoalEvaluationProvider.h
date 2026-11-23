@@ -62,7 +62,7 @@ public:
 
 private:
 
-  struct ObstacleSector
+  struct WhiteFleetObstacleSector
   {
     Rangea sector; /**< The angular range relative to the ball that the obstacle blocks. */
     float distance; /**< The distance of the obstacle to the ball. */

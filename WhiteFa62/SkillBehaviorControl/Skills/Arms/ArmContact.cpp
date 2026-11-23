@@ -1,7 +1,7 @@
 /**
- * @file ArmContact.cpp
+ * @file WhiteFleetArmContact.cpp
  *
- * This file implements the ArmContact skills.
+ * This file implements the WhiteFleetArmContact skills.
  *
  * @author Arne Hasselbring
  */

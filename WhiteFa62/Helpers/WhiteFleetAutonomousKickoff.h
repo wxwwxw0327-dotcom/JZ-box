@@ -21,17 +21,19 @@ namespace WhiteFleetAutonomousKickoff
   inline bool isKicker(int number){return number==kickerNumber;}
   inline bool isReceiver(int number){return number==receiverNumber;}
 
-  /** One algorithm, explicit enrollment. A simulator flag can NEVER authorize
-   * physical hardware or replace its exact Main identity + F1 permission. */
+  /** One algorithm. Real robot: the exact guarded match profile (a simulator flag can NEVER authorize
+   * physical hardware or replace its Main identity + F1 permission). Simulator: on by default for
+   * either team; MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE=0 turns it off so drills can A/B it. */
   inline bool enabled(bool physical,bool guardedPhysical,bool simulated,unsigned team,const char* simulationFlag)
   {
+    static_cast<void>(team);
     if(physical)return guardedPhysical;
-    return simulated&&(team==5||team==70)&&simulationFlag&&simulationFlag[0]=='1'&&simulationFlag[1]=='\0';
+    return simulated&&!(simulationFlag&&simulationFlag[0]=='0'&&simulationFlag[1]=='\0');
   }
   struct Intent
   {
     bool valid=false,rangeLimited=false;
-    WhiteFleetKickoffThroughV8::Point target{};
+    KickoffThroughV8::Point target{};
     float nominalLength=0.f,requestedStopDistance=0.f;
     float observedClearance=0.f;
     unsigned observedBlockers=0;
@@ -40,14 +42,14 @@ namespace WhiteFleetAutonomousKickoff
 
   struct Blocker
   {
-    WhiteFleetKickoffThroughV8::Point center{};
+    KickoffThroughV8::Point center{};
     float radius=0.f; // Observed footprint + ball + measured uncertainty/margin, not a velocity prediction.
   };
 
-  inline float clearance(WhiteFleetKickoffThroughV8::Point ball,WhiteFleetKickoffThroughV8::Point target,
+  inline float clearance(KickoffThroughV8::Point ball,KickoffThroughV8::Point target,
                          const std::vector<Blocker>& blockers)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     const float dx=target.x-ball.x,dy=target.y-ball.y,d2=dx*dx+dy*dy;
     float result=100000.f;
     if(!std::isfinite(d2)||d2<=1.f)return -100000.f;
@@ -62,11 +64,11 @@ namespace WhiteFleetAutonomousKickoff
     return result;
   }
 
-  inline Intent intent(WhiteFleetKickoffThroughV8::Point ball,const WhiteFleetKickoffThroughV8::Field& field,
-                       const WhiteFleetKickoffThroughV8::Params& calibration,const KickInfo& info,
+  inline Intent intent(KickoffThroughV8::Point ball,const KickoffThroughV8::Field& field,
+                       const KickoffThroughV8::Params& calibration,const KickInfo& info,
                        const BallSpecification& specs)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     Intent result;
     if(!K::finite(ball)||!K::fieldValid(field)||!K::paramsValid(calibration)||
        !std::isfinite(specs.radius)||specs.radius<=0.f)return result;
@@ -100,11 +102,11 @@ namespace WhiteFleetAutonomousKickoff
 
   /** Optional lower-side angle trim of a finite kickoff pass, at the same
    * distance and nominal power. Failure to trim cannot block the original kick. */
-  inline Intent lowerFirstPassAngle(Intent pass,WhiteFleetKickoffThroughV8::Point ball,
-                                    const WhiteFleetKickoffThroughV8::Field& field,
+  inline Intent lowerFirstPassAngle(Intent pass,KickoffThroughV8::Point ball,
+                                    const KickoffThroughV8::Field& field,
                                     const std::vector<Blocker>& observed)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     if(!pass.valid||!K::finite(ball)||!K::finite(pass.target)||!K::fieldValid(field))
       return pass;
     constexpr float cos3=.998629535f,sin3=.052335956f;
@@ -132,12 +134,12 @@ namespace WhiteFleetAutonomousKickoff
   /** Soft choice inside the original finite forward/right domain. No observation,
    * positive score, recipient ETA or ACK is an admission requirement. Unknown
    * obstacle velocities are NOT filled with zero or declared safe. */
-  inline Intent laneIntent(WhiteFleetKickoffThroughV8::Point ball,const WhiteFleetKickoffThroughV8::Field& field,
-                           const WhiteFleetKickoffThroughV8::Params& calibration,const KickInfo& info,
+  inline Intent laneIntent(KickoffThroughV8::Point ball,const KickoffThroughV8::Field& field,
+                           const KickoffThroughV8::Params& calibration,const KickInfo& info,
                            const BallSpecification& specs,const std::vector<Blocker>& blockers,
-                           const WhiteFleetKickoffThroughV8::Point* receiver=nullptr)
+                           const KickoffThroughV8::Point* receiver=nullptr)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     Intent best=intent(ball,field,calibration,info,specs);
     if(!best.valid)return best;
     std::vector<Blocker> observed;
@@ -182,10 +184,10 @@ namespace WhiteFleetAutonomousKickoff
 
   /** Raise the normal kick's actual native velocity command by at most 6%,
    * never its range/model cap. P stays fixed; finite rollout may pass beyond P. */
-  inline float strongerNominal(const Intent& pass,WhiteFleetKickoffThroughV8::Point ball,const WhiteFleetKickoffThroughV8::Field& field,
-                               const WhiteFleetKickoffThroughV8::Params& calibration,const KickInfo& info,const BallSpecification& specs)
+  inline float strongerNominal(const Intent& pass,KickoffThroughV8::Point ball,const KickoffThroughV8::Field& field,
+                               const KickoffThroughV8::Params& calibration,const KickInfo& info,const BallSpecification& specs)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     if(!pass.valid||!K::finite(ball)||!K::fieldValid(field))return pass.nominalLength;
     const auto& kick=info[KickInfo::rlKickDynamic];
     const float distance=K::distance(ball,pass.target);
@@ -208,11 +210,11 @@ namespace WhiteFleetAutonomousKickoff
 
   /** A navigation target only, never a new contract or a fresh-ball claim.
    * Native BallModel already carries ordinary odometry/prediction to now. */
-  inline WhiteFleetKickoffThroughV8::Point receiveIntercept(WhiteFleetKickoffThroughV8::Point contract,WhiteFleetKickoffThroughV8::Point ball,
-                                                 WhiteFleetKickoffThroughV8::Point velocity,unsigned age,
-                                                 const WhiteFleetKickoffThroughV8::Field& field,const BallSpecification& specs)
+  inline KickoffThroughV8::Point receiveIntercept(KickoffThroughV8::Point contract,KickoffThroughV8::Point ball,
+                                                 KickoffThroughV8::Point velocity,unsigned age,
+                                                 const KickoffThroughV8::Field& field,const BallSpecification& specs)
   {
-    namespace K=WhiteFleetKickoffThroughV8;
+    namespace K=KickoffThroughV8;
     if(age>600u||!K::finite(ball)||!K::fieldValid(field)||ball.x<1000.f||
        ball.x>field.opponentGoal||std::abs(ball.y)>field.halfWidth)return contract;
     Vector2f target(ball.x,ball.y);

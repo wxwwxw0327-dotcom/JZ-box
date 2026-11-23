@@ -1,7 +1,7 @@
 /**
- * @file WalkToPointObstacle.cpp
+ * @file WhiteFleetWalkToPointObstacle.cpp
  *
- * This file implements an implementation for the WalkToPointObstacle skill.
+ * This file implements an implementation for the WhiteFleetWalkToPointObstacle skill.
  * Obstacles at the target position result in a new adjusted target position, to avoid running into another robot.
  * Afterwards WalkToPoint with the new target position is executed
  *
@@ -61,7 +61,7 @@ option((WhiteFleetSkillBehaviorControl) WalkToPointObstacle,
   // Calculates the circle around an obstacle which occupies my target position.
   const auto getObstacleAtMyPositionCircle = [&](const Vector2f& position) -> Geometry::Circle
   {
-    CIRCLE("option:WalkToPointObstacle:obstacleAtMyPosition", lastCircle.center.x(), lastCircle.center.y(), lastCircle.radius, 20, Drawings::solidPen, ColorRGBA::red, Drawings::noPen, ColorRGBA::black);
+    CIRCLE("option:WhiteFleetWalkToPointObstacle:obstacleAtMyPosition", lastCircle.center.x(), lastCircle.center.y(), lastCircle.radius, 20, Drawings::solidPen, ColorRGBA::red, Drawings::noPen, ColorRGBA::black);
     const Vector2f posRel(theRobotPose.inverse() * position);
     for(const Obstacle& obstacle : theObstacleModel.obstacles)
       if((obstacle.center - posRel).squaredNorm() < sqr(positionOffsetIfOccupied))

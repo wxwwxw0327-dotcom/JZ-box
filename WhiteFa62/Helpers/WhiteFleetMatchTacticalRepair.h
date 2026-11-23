@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #ifndef MDFZ_TACTICAL_MATH_ONLY
 #include "WhiteFleetDefenseCounterSwitch.h"
 #endif
@@ -19,6 +20,61 @@ namespace WhiteFleetMatchTacticalRepair
     const float lateral=std::min(1500.f,std::max(350.f,halfWidth*.25f));
     return {std::max(ownGoal+600.f,-std::max(0.f,radius)-450.f-350.f*rank),
             (rank%2 ? 1.f:-1.f)*lateral};
+  }
+  /** Opponent kickoff, centre version: rank 0 blocks the straight pass lane just outside the centre circle,
+   * rank 1 screens the middle in front of the own penalty area (the two lateral slots above leave the
+   * centre lane open: a pass into it reached the opponent's runner in ~7 s). */
+  inline Point centerKickoffSlot(unsigned rank,float radius,float ownGoal,float ownPenaltyX,float halfWidth)
+  {
+    if(rank==0)return {-std::max(0.f,radius)-850.f,0.f};
+    if(rank==1)return {std::min(-std::max(0.f,radius)-1500.f,std::max(ownGoal+600.f,ownPenaltyX+750.f)),0.f};
+    return defensiveKickoffSlot(rank,radius,ownGoal,halfWidth);
+  }
+  /** Observed opponent footprint for the own-kickoff first pass (radius already includes ball + margin). */
+  struct LaneBlocker {Point center;float radius=0.f;};
+  /** Free width (mm, negative = blocked) between the rolling ball path ball->target and the blockers in
+   * front of the ball; a blocker beyond the target counts by its distance to the stop point. */
+  inline float laneClearance(Point ball,Point target,const std::vector<LaneBlocker>& blockers)
+  {
+    const float dx=target.x-ball.x,dy=target.y-ball.y,d2=dx*dx+dy*dy;
+    if(!finite(ball)||!finite(target)||!(d2>1.f))return -100000.f;
+    float result=100000.f;
+    for(const auto& b:blockers)
+    {
+      if(!finite(b.center)||!std::isfinite(b.radius)||b.radius<=0.f)continue;
+      const float f=((b.center.x-ball.x)*dx+(b.center.y-ball.y)*dy)/d2;
+      if(f<=0.f)continue;
+      const float c=std::min(f,1.f);
+      result=std::min(result,distance({ball.x+c*dx,ball.y+c*dy},b.center)-b.radius);
+    }
+    return result;
+  }
+  /** Own kickoff against a defender standing in the pass lane (e.g. a centre blocker just outside the circle):
+   * the normal first pass (ray to ~(7.8 m,-1..-1.8 m)) is cut out at ~2.3 m on almost every kickoff.
+   * Only when the normal lane is observed blocked or nearly so (clearance < 300 mm) pick a forward target on the receiver's
+   * (right, y < ball) side whose lane clears every observed blocker by >= 400 mm and by 600 mm more than the
+   * normal lane. Reachable stop distance only; invalid result = keep the normal pass. */
+  struct WideLane {bool valid=false;Point target;float clearance=0.f;};
+  inline WideLane wideKickoffLane(Point ball,float normalClearance,const std::vector<LaneBlocker>& blockers,
+                                  float opponentGoal,float halfWidth,float maxStop,const Point* receiver)
+  {
+    WideLane best;
+    if(blockers.empty()||!finite(ball)||!std::isfinite(normalClearance)||normalClearance>=300.f
+       ||!std::isfinite(maxStop)||maxStop<2500.f||!std::isfinite(opponentGoal)||!std::isfinite(halfWidth))return best;
+    float bestScore=-1e9f;
+    for(float dx=3000.f;dx<=6500.f;dx+=500.f)
+      for(float lateral=1500.f;lateral<=4500.f;lateral+=250.f)
+      {
+        const Point t{ball.x+dx,ball.y-lateral};
+        if(t.x>opponentGoal-600.f||t.y<-halfWidth+900.f||distance(ball,t)>maxStop)continue;
+        const float c=laneClearance(ball,t,blockers);
+        if(c<400.f||c<normalClearance+600.f)continue;
+        const float travel=receiver&&finite(*receiver)?distance(*receiver,t):0.f;
+        // Enough width first, then deeper, less lateral and closer to the receiver.
+        const float score=std::min(c,1000.f)+.05f*dx-.03f*lateral-.015f*travel;
+        if(score>bestScore){bestScore=score;best={true,t,c};}
+      }
+    return best;
   }
   inline Point penaltyCorner(float penaltyX,float penaltyY,float goalX,float halfWidth,int side,float outside)
   {

@@ -1,7 +1,7 @@
 /**
- * @file Annotation.cpp
+ * @file WhiteFleetAnnotation.cpp
  *
- * This file implements the Annotation skill.
+ * This file implements the WhiteFleetAnnotation skill.
  *
  * @author Arne Hasselbring
  */
@@ -22,7 +22,7 @@ option((WhiteFleetSkillBehaviorControl) Annotation,
     }
     action
     {
-      ANNOTATION("WhiteFleetBehavior", annotation);
+      ANNOTATION("Behavior", annotation);
       lastAnnotationSent = annotation;
     }
   }

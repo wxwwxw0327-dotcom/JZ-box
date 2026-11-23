@@ -15,7 +15,7 @@
  * already offered/confirmed endpoint. No wire fields or ACKs are added. */
 namespace WhiteFleetC15DefenceAdaptive
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   constexpr float generatedShift=300.f,wireTolerance=300.f;
   constexpr std::size_t maxAngles=24,maxExtraTargets=64;
 

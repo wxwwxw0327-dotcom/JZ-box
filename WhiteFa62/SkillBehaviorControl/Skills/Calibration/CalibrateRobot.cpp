@@ -1,5 +1,5 @@
 /**
- * @file CalibrateRobot.cpp
+ * @file WhiteFleetCalibrateRobot.cpp
  *
  * @author Lukas Plecher
  */

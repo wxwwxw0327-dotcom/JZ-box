@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 /** Opt-in match entry permission; never a replacement for physical F1/X safety. */
 #pragma once
 
@@ -32,7 +31,7 @@ namespace WhiteFleetBoosterMatchSafety
       std::atomic<std::uint64_t> visualEpoch{0};
       std::atomic<unsigned> visualFrame{0}, visualCount{0}, poses{0}, landmarks{0}, lines{0};
     };
-    inline MatchState& matchSafetyStorage() {return WhiteFleetSimContext::storage<MatchState,102>();}
+    inline MatchState& matchSafetyStorage() {static MatchState value; return value;}
     inline bool parseGameControllerSource(const std::string& text, std::uint32_t& address) noexcept
     {
       if(text.size() < 7 || text.size() > 15) return false;
@@ -110,7 +109,7 @@ namespace WhiteFleetBoosterMatchSafety
   // Unlike CABSL vars this survives returning to the option's inactive state.
   // Only the Cognition behavior thread reads/writes this edge detector.
   inline InitialHandoff& initialHandoff() noexcept
-  {return WhiteFleetSimContext::storage<InitialHandoff,103>();}
+  {static InitialHandoff value; return value;}
   inline bool acceptGameControllerSource(unsigned hostOrderAddress) noexcept
   {
     if(!enabled()) return true; // Preserve the unmodified official/non-match path.

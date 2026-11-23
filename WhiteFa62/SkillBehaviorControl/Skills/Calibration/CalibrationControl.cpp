@@ -1,5 +1,5 @@
 /**
- * @file CalibrationControl.cpp
+ * @file WhiteFleetCalibrationControl.cpp
  *
  * This file defines skill that defines the behavior of the robot to start the different calibration steps.
  *

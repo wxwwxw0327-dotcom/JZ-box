@@ -1,7 +1,7 @@
 #pragma once
 #include "WhiteFleetKickoffThroughV8Math.h"
 
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   struct CaptureOdometry {bool valid=false;Point position{};float heading=0.f;};
   inline Point captureRotate(Point p,float a)

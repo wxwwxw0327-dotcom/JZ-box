@@ -1,7 +1,7 @@
 /**
- * @file GoToBallAndDribble.cpp
+ * @file WhiteFleetGoToBallAndDribble.cpp
  *
- * This file implements the GoToBallAndDribble skill.
+ * This file implements the WhiteFleetGoToBallAndDribble skill.
  *
  * @author Arne Hasselbring
  */

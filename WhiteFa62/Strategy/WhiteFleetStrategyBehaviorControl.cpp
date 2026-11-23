@@ -1,5 +1,3 @@
-#include "WhiteFleetSimEntry.h"
-#include "WhiteFleetSimPhysical.h"
 /**
  * @file WhiteFleetStrategyBehaviorControl.cpp
  *
@@ -23,12 +21,6 @@
 #include "Tools/Motion/KickLengthConverter.h"
 #include "Debugging/Annotation.h"
 #include <cstdio>
-#include <cstring>
-#include <algorithm>
-#include "Platform/File.h"
-#include <sstream>
-#include <string>
-#include <vector>
 
 MAKE_MODULE(WhiteFleetStrategyBehaviorControl, WhiteFleetStrategyBehaviorControl::getExtModuleInfo);
 
@@ -36,132 +28,7 @@ WhiteFleetStrategyBehaviorControl::WhiteFleetStrategyBehaviorControl() :
   theBehavior(theBallSearchParticles, theBallSpecification, theBehaviorParameters,
               theExtendedGameState, theFieldBall, theFieldDimensions, theFieldInterceptBall,
               theFrameInfo, theGameState, theIndirectKick, theTeamBallModel, theWalkingEngineOutput)
-{
-  // MDFZ arena: a class's own formation. The file exists only in that class's scenario copy.
-  File file("mdfzFormation.cfg", "r");
-  if(file.exists())
-  {
-    char text[512] = {0};
-    file.read(text, std::min<size_t>(file.getSize(), sizeof(text) - 1));
-    mdfzFormation.enabled = std::strstr(text, "enabled = true;") != nullptr;
-    if(const char* p = std::strstr(text, "followBall = "))
-      mdfzFormation.followBall = std::max(0.f, std::min(.8f, static_cast<float>(std::atof(p + 13))));
-    std::printf("MDFZ_FORMATION_CONFIG team=%d enabled=%d followBall=%.2f\n", Global::getSettings().teamNumber, mdfzFormation.enabled, mdfzFormation.followBall);
-    std::fflush(stdout);
-  }
-  // MDFZ v33: 没有工坊 cfg 时不强行开编队. 3v3 实测: 编队层 + 规则层一起上是负收益,
-  // 接应球员被拉到固定点位反而不如原生战术的即时判断. 工坊里自己写了 cfg 仍然照常生效.
-  // MDFZ arena: a class's own rules (behaviour workshop). The file exists only in that class's scenario copy.
-  File rulesFile("mdfzRules.cfg", "r");
-  if(rulesFile.exists())
-  {
-    std::string text(std::min<size_t>(rulesFile.getSize(), 8192), '\0');
-    rulesFile.read(&text[0], text.size());
-    std::istringstream lines(text);
-    std::string line;
-    while(std::getline(lines, line) && mdfzRules.rules.size() < 16)
-      parseMdfzRuleLine(line);
-    std::printf("MDFZ_RULES_CONFIG team=%d rules=%d\n", Global::getSettings().teamNumber, static_cast<int>(mdfzRules.rules.size()));
-    std::fflush(stdout);
-  }
-  // MDFZ v33: 不再注入内置 12 条默认规则. 实测规则层会把持球球员从"拼抢/原生决策"
-  // 拽到"按规则出球", 而 oppBallDist<1.2 这条在 3v3 里几乎常真, 等于每次对抗都强行传球.
-  // 工坊里存在 mdfzRules.cfg 时下列代码照旧解析并生效.
-}
-
-bool WhiteFleetStrategyBehaviorControl::parseMdfzRuleLine(const std::string& line)
-{
-  static const char* names[] = {"ballX", "ballY", "absBallY", "ownGoalDist", "oppGoalDist", "myBallDist", "oppBallDist", "scoreDiff"};
-  static const char* ballActions[] = {"shoot", "clear", "pass", "dribble", "native"};
-  static const char* supportActions[] = {"goto", "follow", "guard", "mark", "native"};
-  std::istringstream in(line);
-  std::string role, action, tok;
-  if(!(in >> role >> action) || (role != "ball" && role != "support"))
-    return false;
-  MdfzRule rule;
-  rule.ball = role == "ball";
-  rule.text = line;
-  rule.action = -1;
-  for(int i = 0; i < 5; ++i)
-    if(action == (rule.ball ? ballActions[i] : supportActions[i]))
-      rule.action = i;
-  if(rule.action < 0)
-    return false;
-  bool ok = true, inConds = false;
-  int numArgs = 0;
-  while(in >> tok)
-  {
-    if(tok == "if") {inConds = true; continue;}
-    if(!inConds)
-    {
-      (numArgs++ == 0 ? rule.a : rule.b) = static_cast<float>(std::atof(tok.c_str())) * 1000.f; // metres -> mm
-      continue;
-    }
-    const size_t op = tok.find_first_of("<>");
-    if(op == std::string::npos) {ok = false; break;}
-    MdfzCond cond;
-    cond.name = -1;
-    for(int i = 0; i < 8; ++i)
-      if(tok.compare(0, op, names[i]) == 0 && std::strlen(names[i]) == op)
-        cond.name = i;
-    if(cond.name < 0) {ok = false; break;}
-    cond.less = tok[op] == '<';
-    cond.value = static_cast<float>(std::atof(tok.c_str() + op + 1)) * (cond.name == 7 ? 1.f : 1000.f); // m -> mm, goals as is
-    rule.conds.push_back(cond);
-  }
-  if(ok)
-    mdfzRules.rules.push_back(rule);
-  return ok;
-}
-
-void WhiteFleetStrategyBehaviorControl::updateSituationMode()
-{
-  const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
-  const SituationMode want = diff > 0 ? SituationMode::protect : (diff < 0 ? SituationMode::chase : SituationMode::balanced);
-  // timeWhenStateEnds is only valid for some states; treat 0 / past values as unknown.
-  const bool endgame = theGameState.timeWhenStateEnds > theFrameInfo.time &&
-                       theGameState.timeWhenStateEnds - theFrameInfo.time < 90000u;
-  if(want != situationMode || endgame != situationEndgame)
-  {
-    situationMode = want;
-    situationEndgame = endgame;
-    std::printf("MDFZ_SITUATION team=%d self=%d diff=%d mode=%s endgame=%d now=%u\n",
-      Global::getSettings().teamNumber, theGameState.playerNumber, diff,
-      situationMode == SituationMode::protect ? "protect" : situationMode == SituationMode::chase ? "chase" : "balanced",
-      situationEndgame ? 1 : 0, theFrameInfo.time);
-    std::fflush(stdout);
-    lastSituationLog = theFrameInfo.time;
-  }
-  // Rolling pressure score: 1 s samples, ~15 s memory. High values mean the opponent
-  // keeps the ball in our own half (we are pinned), which drives the anti-pin cover line.
-  if(theFrameInfo.getTimeSince(lastPinSample) >= 1000)
-  {
-    lastPinSample = theFrameInfo.time;
-    const Vector2f ball = theFieldBall.recentBallPositionOnField();
-    const float ballX = ball.allFinite() ? ball.x() : 0.f;
-    pinScore = pinScore * 0.85f + (ballX < 0.f ? 0.15f : 0.f);
-  }
-  // Fresh-phase shield: right after conceding, play compact for a few seconds instead
-  // of immediately chasing the equalizer into another counter.
-  if(theGameState.opponentTeam.score > lastOppScore)
-  {
-    lastOppScore = theGameState.opponentTeam.score;
-    shieldUntil = theFrameInfo.time + 5000;
-    std::printf("MDFZ_SHIELD self=%d reason=conceded until=%u\n", theGameState.playerNumber, shieldUntil);
-    std::fflush(stdout);
-  }
-  else
-    lastOppScore = theGameState.opponentTeam.score;
-}
-
-bool WhiteFleetStrategyBehaviorControl::restDefenseActive() const
-{
-  const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
-  // Only give up the rest defense when there is nothing left to lose:
-  // two goals behind, or behind with the match about to end.
-  const bool desperate = diff <= -2 || (diff < 0 && situationEndgame);
-  return !desperate;
-}
+{}
 
 std::vector<ModuleBase::Info> WhiteFleetStrategyBehaviorControl::getExtModuleInfo()
 {
@@ -172,9 +39,17 @@ std::vector<ModuleBase::Info> WhiteFleetStrategyBehaviorControl::getExtModuleInf
 
 void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetStrategyBehaviorControl");fleetProviderSeen=true;WhiteFleetSimEntry::tactical(theBehaviorParameters);}
+  // Simulator: report once per robot which match features are really on, so every environment
+  // (local runs, P1, the school platform) can check them instead of trusting its switch list.
+  if(SystemCall::getMode()==SystemCall::simulatedRobot&&!matchProfileLogged)
+  {
+    matchProfileLogged=true;
+    std::printf("MATCH_PROFILE team=%u player=%d kickoff_v4=%d defense_v2=%d gk_predict=%d recovery=%d\n",
+      static_cast<unsigned>(Global::getSettings().teamNumber),Global::getSettings().playerNumber,
+      int(WhiteFleetAutonomousKickoff::enabled(false,false,true,Global::getSettings().teamNumber,nullptr)),
+      int(WhiteFleetDefenseCounterSwitch::enabled()),int(WhiteFleetDefenseCounterSwitch::keeperPredictionEnabled()),int(WhiteFleetDefenseCounterSwitch::recoveryEnabled()));
+    std::fflush(stdout);
+  }
   if(!theGameState.isPlaying() || theGameState.playerState!=GameState::active)
     cornerPlan=CornerPlan{};
   wasPenalized = theExtendedGameState.wasPenalized() && theExtendedGameState.returnFromGameControllerPenalty && (theGameState.isPlaying() || theGameState.isReady() || theGameState.isSet());
@@ -215,9 +90,9 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     skillRequest = theBehavior.update(strategy, *self, agents);
     // This playbook has one shared kicker, not two independent local cost
     // elections. Ordinary team roles resume immediately after ownKickOff.
-    const bool autonomousKickoff=WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-        WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
-        Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE"))
+    const bool autonomousKickoff=WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+        WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
+        Global::getSettings().teamNumber,nullptr)
         &&theGameState.state==GameState::ownKickOff&&theGameState.isForOwnTeam();
     if(autonomousKickoff&&!theGameState.ownTeam.isGoalkeeper(self->number))
     {
@@ -236,7 +111,6 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     theStrategyStatus.setPlayStep = self->setPlayStep;
     theStrategyStatus.position = self->position;
     theStrategyStatus.role = self->role;
-    updateSituationMode(); // Score / endgame analysis drives the automatic rest defense below.
     if(WhiteFleetDefenseCounterSwitch::enabled()&&!autonomousKickoff)
       applyDefenseCounter(skillRequest,*self);
     if(WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff)&&
@@ -244,7 +118,7 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
       applyKickoffThrough(skillRequest,*self); // Legal READY preparation and SET hold only.
     if(!autonomousKickoff&&!skillRequest.kickoffThrough&&!skillRequest.restartPassRequired)
     {
-      {const bool outlet=applyBackfieldOutlet(skillRequest,*self);if(outlet&&mdfzFormation.enabled)++mdfzFormation.n[7];if(!outlet&&!applyMdfzRules(skillRequest,*self)&&!applyMdfzFormation(skillRequest,*self))applyOpponentSidePosition(skillRequest,*self);}
+      if(!applyBackfieldOutlet(skillRequest,*self))applyOpponentSidePosition(skillRequest,*self);
     }
     else {outletPlan=OutletPlan{};supportHalf.reset();}
   }
@@ -265,8 +139,37 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     }
   }
 
-  // MDFZ v33: 开球后退站位与角球站位两个末层钩子停用(实测负收益, 原生战术更灵活).
-  // 两个函数体仍保留在文件末尾, 要恢复把上面这四行注释解开即可.
+  // v116: 开球阶段强制出脚 + 诊断日志.
+  // 平台反馈: ready/set 十五秒站桩, 进 ownKickOff 后还要等对方压上来才踢.
+  if(self && !wasPenalized && !theGameState.ownTeam.isGoalkeeper(self->number) &&
+     (theGameState.state==GameState::ownKickOff ||
+      theGameState.state==GameState::setupOwnKickOff ||
+      theGameState.state==GameState::waitForOwnKickOff))
+  {
+    static thread_local unsigned mdfzOwnKickLog=0;
+    if(theFrameInfo.getTimeSince(mdfzOwnKickLog)>=500)
+    {
+      mdfzOwnKickLog=theFrameInfo.time;
+      std::printf("MDFZ_OWNKICK_DEBUG self=%d state=%d seen=%d d=%.0f ball=%.0f,%.0f skill=%d\n",
+                  self->number,static_cast<int>(theGameState.state),
+                  theFieldBall.ballWasSeen(1000)?1:0,
+                  theFieldBall.positionOnField.allFinite()?(theFieldBall.positionOnField-theRobotPose.translation).norm():-1.f,
+                  theFieldBall.positionOnField.x(),theFieldBall.positionOnField.y(),
+                  static_cast<int>(skillRequest.skill));
+      std::fflush(stdout);
+    }
+  }
+  if(self && !wasPenalized && theGameState.state==GameState::ownKickOff &&
+     !theGameState.ownTeam.isGoalkeeper(self->number) &&
+     theFieldBall.ballWasSeen(1000) && theFieldBall.positionOnField.allFinite() &&
+     (theFieldBall.positionOnField-theRobotPose.translation).norm()<1500.f)
+  {
+    const Vector2f kickBall=theFieldBall.positionOnField;
+    const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
+    skillRequest=SkillRequest::Builder::shoot();
+    skillRequest.target=Pose2f(Angle::normalize((aim-kickBall).angle()-theRobotPose.rotation),
+                               theFieldDimensions.xPosOpponentGoalLine,0.f);
+  }
 
   theBehavior.postProcess();
 
@@ -286,9 +189,9 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   }
 }
 
-bool WhiteFleetStrategyBehaviorControl::allowKickoffReceiverContactPosture(const WhiteFleetKickoffThroughV8::Params& params,const Agent& self)
+bool WhiteFleetStrategyBehaviorControl::allowKickoffReceiverContactPosture(const KickoffThroughV8::Params& params,const Agent& self)
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   // The existing explicit forward-prepare profile is the only opt-in. Native
   // MotionInfo::isMotionStable is a phase flag, NOT independent balance proof.
   if(!theBehaviorParameters.c15ForwardPrepare||params.firstPassPrepareAdvance!=250.f)return false;
@@ -344,18 +247,9 @@ bool WhiteFleetStrategyBehaviorControl::allowKickoffReceiverContactPosture(const
 
 bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request,Agent& self)
 {
-  // READ_ONLY_C15_ENTRY_BEGIN
-  if(theGameState.state==GameState::ownKickOff && (self.number==2||self.number==3))
-  {
-    static thread_local unsigned c15EntryEvent=0;
-    if(c15EntryEvent!=theGameState.timeWhenStateStarted)
-    {c15EntryEvent=theGameState.timeWhenStateStarted;std::printf("FLEET_C15_ENTRY team=%d self=%d event=%u now=%u enabled=%d\n",Global::getSettings().teamNumber,self.number,c15EntryEvent,theFrameInfo.time,WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff));std::fflush(stdout);}
-  }
-  // READ_ONLY_C15_ENTRY_END
-
-  if(WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-      WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
-      Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE")))
+  if(WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+      WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
+      Global::getSettings().teamNumber,nullptr))
   {
     // Single physical path: native owner -> native first-pass skill. A failed
     // C15 transaction must not quarantine this kickoff or later ordinary PLAY.
@@ -371,9 +265,9 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
   const bool owns=isolatedKickoffPhase.tick(own,playing,theGameState.timeWhenStateStarted,theFrameInfo.time,p.total);
   if(!isolatedKickoffPhase.event)return false;
   const bool receiverContact=allowKickoffReceiverContactPosture(p,self);
-  const bool simMaxReleased=theBehaviorParameters.c15ReceiverSimMaxRun&&WhiteFleetSimPhysical::simulated()
-      &&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2&&self.number==receiver
-      &&kickoffThroughSession.nativePursuitAt>0&&kickoffThroughSession.stage!=WhiteFleetKickoffThroughV8::Stage::ended;
+  const bool simMaxReleased=theBehaviorParameters.c15ReceiverSimMaxRun&&SystemCall::getMode()==SystemCall::simulatedRobot
+      &&Global::getSettings().playerNumber==2&&self.number==receiver
+      &&kickoffThroughSession.nativePursuitAt>0&&kickoffThroughSession.stage!=KickoffThroughV8::Stage::ended;
   const bool unsafe=theGameState.stopped||(theRobotPose.quality==RobotPose::poor&&!simMaxReleased)||!theRobotPose.isFinite()
       ||(theFallDownState.state!=FallDownState::upright&&!receiverContact)||isolatedKickoffPhase.clockFault
       ||(theMotionInfo.executedPhase!=MotionPhase::stand&&theMotionInfo.executedPhase!=MotionPhase::walk);
@@ -421,10 +315,7 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
     // The phase is finished, but a stationary unplayed centre ball must not
     // silently select ordinary pass/clear. A referee context change resets it;
     // trusted actual departure allows normal play, with no stale C15 restart.
-    // If no contract session was ever attempted (e.g. the partner was penalized),
-    // do not freeze here: fall through to the native kickoff so someone plays the ball.
-    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)
-      return kickoffThroughSession.event?refuseFirstFoot():false;
+    if(isolatedKickoffPhase.finished&&!isolatedKickoffPhase.ballDeparted)return refuseFirstFoot();
     return false;
   }
   // Publish only the phase's explicit roles; clear stale ordinary set plays.
@@ -454,7 +345,7 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
     isolatedKickoffPhase.lastAction=1;
     return true;
   }
-  if(kickoffThroughSession.stage==WhiteFleetKickoffThroughV8::Stage::ended||!kickoffThroughSession.event)
+  if(kickoffThroughSession.stage==KickoffThroughV8::Stage::ended||!kickoffThroughSession.event)
   {
     isolatedKickoffPhase.finish(kickoffThroughSession.event?kickoffThroughSession.reason:"pair_unavailable_before_session");
     for(auto& agent:agents)
@@ -466,15 +357,11 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
         isolatedKickoffPhase.reason,kickoffThroughSession.settleAt!=0);
     std::fflush(stdout); // Read-only first-episode stop observation, no motion/GC change.
     isolatedKickoffPhase.exitReported=true;
-    // Refuse (stand) only if a contract was actually attempted, to protect against
-    // a second touch by the kicker. "pair_unavailable_before_session" never
-    // attempted anything: hand the kickoff to the native behavior instead of both
-    // players standing until the ball leaves the center circle.
-    return !isolatedKickoffPhase.ballDeparted&&kickoffThroughSession.event?refuseFirstFoot():false;
+    return !isolatedKickoffPhase.ballDeparted?refuseFirstFoot():false;
   }
-  if(self.number==receiver&&(request.kickoffThroughAction==static_cast<int>(WhiteFleetKickoffThroughV8::Action::pursue)
-      ||kickoffThroughSession.stage==WhiteFleetKickoffThroughV8::Stage::capture
-      ||kickoffThroughSession.stage==WhiteFleetKickoffThroughV8::Stage::settling))
+  if(self.number==receiver&&(request.kickoffThroughAction==static_cast<int>(KickoffThroughV8::Action::pursue)
+      ||kickoffThroughSession.stage==KickoffThroughV8::Stage::capture
+      ||kickoffThroughSession.stage==KickoffThroughV8::Stage::settling))
     self.role=ActiveRole::toRole(ActiveRole::playBall);
   theStrategyStatus.role=self.role;
   if(!handled)request=SkillRequest::Builder::stand();
@@ -489,7 +376,7 @@ bool WhiteFleetStrategyBehaviorControl::runIsolatedKickoff(SkillRequest& request
 
 bool WhiteFleetStrategyBehaviorControl::applyKickoffThrough(SkillRequest& request,const Agent& self)
 {
-  namespace Through=WhiteFleetKickoffThroughV8;
+  namespace Through=KickoffThroughV8;
   if(!WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff))return false;
   const auto params=WhiteFleetK1V21MatchProfile::guardedPrepare(WhiteFleetC15KickoffSwitch::configuredForwardPrepareParams(theBehaviorParameters.c15EarlyStart,theBehaviorParameters.c15RestoreProvenPool,theBehaviorParameters.c15DefenceAdaptiveAngle,theBehaviorParameters.c15InsideCornerLane,theBehaviorParameters.c15RaceRendezvous,theBehaviorParameters.c15DirectCenterKickoff,theBehaviorParameters.c15CenterFastKickoff,theBehaviorParameters.c15ReceiverPrepareHold,theBehaviorParameters.c15ReceiverBallApproach,theBehaviorParameters.c15ReceiverFollowFromRelease,theBehaviorParameters.c15StableKickAim,theBehaviorParameters.c15ReceiverEarlyNative,theBehaviorParameters.c15ReceiverGapWalk,theBehaviorParameters.c15FirstPassClearance,theBehaviorParameters.c15ForwardPrepare),theFieldDimensions.xPosHalfwayLine,theFieldDimensions.fieldLinesWidth,theBehaviorParameters.illegalAreasLargeDistance);
   if(params.isolated&&isolatedKickoffPhase.finished)return false;
@@ -505,14 +392,14 @@ bool WhiteFleetStrategyBehaviorControl::applyKickoffThrough(SkillRequest& reques
   unsigned activeFields=0;
   for(unsigned i=0;i<theGameState.ownTeam.playerStates.size();++i)
     if(active(Settings::lowestValidPlayerNumber+static_cast<int>(i)))++activeFields;
-  const bool pairActive=active(params.kicker)&&active(receiver)&&activeFields>=2;
+  const bool pairActive=active(params.kicker)&&active(receiver)&&activeFields==2;
   const Through::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
     theFieldDimensions.xPosOpponentPenaltyArea,theFieldDimensions.yPosLeftTouchline,theFieldDimensions.yPosLeftGoal,theFieldDimensions.yPosLeftPenaltyArea};
   const bool receiverContact=allowKickoffReceiverContactPosture(params,self);
   const bool upright=(theFallDownState.state==FallDownState::upright||receiverContact)
       && (theMotionInfo.executedPhase==MotionPhase::stand || theMotionInfo.executedPhase==MotionPhase::walk);
-  const bool simMaxReleased=theBehaviorParameters.c15ReceiverSimMaxRun&&WhiteFleetSimPhysical::simulated()
-      &&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2&&self.number==receiver
+  const bool simMaxReleased=theBehaviorParameters.c15ReceiverSimMaxRun&&SystemCall::getMode()==SystemCall::simulatedRobot
+      &&Global::getSettings().playerNumber==2&&self.number==receiver
       &&kickoffThroughSession.nativePursuitAt>0&&kickoffThroughSession.stage!=Through::Stage::ended;
   const bool poseValid=(theRobotPose.quality!=RobotPose::poor||simMaxReleased) && theRobotPose.isFinite();
   const auto& oldContract=kickoffThroughSession.committedPlan();
@@ -873,13 +760,7 @@ bool WhiteFleetStrategyBehaviorControl::applyBackfieldOutlet(SkillRequest& reque
   if(!allowed)
   {
     outletPlan=OutletPlan{};
-    // Freeze only when the pose is broken or the ball has not been seen for a
-    // long time (> 650 ms). A slightly stale ball (200-650 ms) must fall back to
-    // the ordinary native decision (pass/clear/dribble) instead of standing still.
-    const bool poseBad=!self.isUpright||!theRobotPose.isFinite()||
-      theRobotPose.quality==RobotPose::poor||theFallDownState.state!=FallDownState::upright;
-    if(context&&(poseBad||theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen)>650))
-    {request=SkillRequest::Builder::stand();return true;} // Unsafe own-half data cannot fall back to a light teammate pass.
+    if(context){request=SkillRequest::Builder::stand();return true;} // Unsafe own-half data cannot fall back to a light teammate pass.
     return false;
   }
   const unsigned now=theFrameInfo.time;
@@ -948,231 +829,6 @@ bool WhiteFleetStrategyBehaviorControl::applyBackfieldOutlet(SkillRequest& reque
     lastOutletLog=now;
     std::printf("FLEET_STRONG_OUTLET self=%d receiver=%d P=%.1f,%.1f admitted=%d native_clear=%d\n",
       self.number,choice?choice->number:-1,choice?target.x():0.f,choice?target.y():0.f,choice!=nullptr,choice==nullptr);
-  }
-  return true;
-}
-
-bool WhiteFleetStrategyBehaviorControl::applyMdfzRules(SkillRequest& request,const Agent& self)
-{
-  if(mdfzRules.rules.empty())return false;
-  const unsigned now=theFrameInfo.time;
-  const bool ballRole=Role::isActiveRole(self.role);
-  if(theGameState.state!=GameState::playing||theGameState.stopped||theGameState.playerState!=GameState::active||
-     self.isGoalkeeper||self.acceptedSetPlay!=SetPlay::none||request.backfieldStrongOutlet||!self.isUpright)
-  {mdfzRules.active=-1;return false;}
-  if(!ballRole)
-    for(const Teammate& peer:theTeamData.teammates)
-      if(peer.number!=self.number&&peer.theRobotStatus.isUpright&&
-         TeamActivityPolicy::fresh(now,peer.theFrameInfo.time,1200)&&peer.theBehaviorStatus.passTarget==self.number)
-      {mdfzRules.active=-1;return false;} // receiving a pass wins
-  const Vector2f ball=theFieldBall.recentBallPositionOnField();
-  if(!ball.allFinite()){mdfzRules.active=-1;return false;}
-  const Vector2f ownGoal(theFieldDimensions.xPosOwnGoalLine,0.f),oppGoal(theFieldDimensions.xPosOpponentGoalLine,0.f);
-  // Automatic rest defense: while the team attacks, the supporting player holds a
-  // cover line 3 m behind the ball but never past the halfway line, so a lost ball
-  // cannot become an immediate counter. Only a desperate chase gives this up.
-  // While pinned in our own half, the line may move up to 1.5 m into the opponent
-  // half so that our attacks are not completely starved of support.
-  // MDFZ: latch the cover line with a 700 mm dead band around the halfway line.
-  // The old threshold was a single value (ball.x() > 500), so a ball rolling across
-  // the middle switched the supporting player between the cover point and the
-  // formation base several times per second.
-  if(ball.x() > 900.f)
-    restDefenseLatched = true;
-  else if(ball.x() < 200.f)
-    restDefenseLatched = false;
-  if(!ballRole && restDefenseActive() && restDefenseLatched)
-  {
-    const int diff = static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score);
-    const bool pinned = pinScore >= 0.55f && diff <= 0;
-    // v5: the cover line stays high enough to combine in attack, but both players
-    // never commit: +2 m normally, +3.5 m while chasing, +1 m more when pinned.
-    float coverCap = diff < 0 ? 3500.f : 2000.f;
-    if(pinned) coverCap += 1000.f;
-    // MDFZ: 600 mm lateral dead band. The cover point used the ball's raw y, so a ball
-    // drifting down the wing dragged the supporting player across the whole field.
-    if(coverBallYSample == 0 || std::abs(ball.y() - coverBallYHold) > 600.f)
-    {
-      coverBallYHold = ball.y();
-      coverBallYSample = now;
-    }
-    Vector2f cover(std::min(ball.x() - 3000.f, coverCap), coverBallYHold);
-    cover.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f, cover.x());
-    cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f, std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
-    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));
-    mdfzRules.active = -1;
-    if(theFrameInfo.getTimeSince(lastRestDefenseLog) >= 5000)
-    {
-      lastRestDefenseLog = now;
-      std::printf("MDFZ_RESTDEF self=%d ball=%.0f,%.0f cover=%.0f,%.0f diff=%d endgame=%d pin=%.2f\n",
-        self.number, ball.x(), ball.y(), cover.x(), cover.y(),
-        static_cast<int>(theGameState.ownTeam.score) - static_cast<int>(theGameState.opponentTeam.score),
-        situationEndgame ? 1 : 0, pinScore);
-    }
-    return true;
-  }
-  // Fresh-phase shield: right after a (re)start or right after conceding, the support
-  // holds a pure goal-side cover position for a few seconds instead of pushing up.
-  if(!ballRole && (theFrameInfo.time < shieldUntil ||
-     (theGameState.timeWhenStateStarted > 0 && theGameState.timeWhenStateStarted <= theFrameInfo.time &&
-      theFrameInfo.time - theGameState.timeWhenStateStarted < 3000u)))
-  {
-    Vector2f cover = ownGoal + (ball - ownGoal).normalized(std::min(2500.f, (ball - ownGoal).norm() * 0.5f));
-    cover.x() = std::max(theFieldDimensions.xPosOwnGoalArea + 300.f, cover.x());
-    cover.y() = std::max(theFieldDimensions.yPosRightTouchline + 300.f, std::min(theFieldDimensions.yPosLeftTouchline - 300.f, cover.y()));
-    request = SkillRequest::Builder::walkTo(Pose2f(Angle((ball - cover).angle()), cover));
-    mdfzRules.active = -1;
-    return true;
-  }
-  float oppBallDist=100000.f;const Vector2f* nearestOpp=nullptr;Vector2f oppPos;
-  for(const auto& obstacle:theObstacleModel.obstacles)
-    if(obstacle.isOpponent()&&obstacle.lastSeen&&obstacle.lastSeen<=now&&now-obstacle.lastSeen<=1000&&obstacle.center.allFinite())
-    {
-      const Vector2f p=theRobotPose*obstacle.center;
-      if(p.allFinite()&&(p-ball).norm()<oppBallDist){oppBallDist=(p-ball).norm();oppPos=p;nearestOpp=&oppPos;}
-    }
-  const float values[8]={ball.x(),ball.y(),std::abs(ball.y()),(ball-ownGoal).norm(),(ball-oppGoal).norm(),
-    (ball-theRobotPose.translation).norm(),oppBallDist,
-    static_cast<float>(static_cast<int>(theGameState.ownTeam.score)-static_cast<int>(theGameState.opponentTeam.score))};
-  // Dynamic shot range: while chasing or in the final minutes, accept a shot from up
-  // to 6.5 m (the default rule stays at 5.5 m). Needs a bit more space (1 m).
-  if(ballRole && (situationMode == SituationMode::chase || situationEndgame) &&
-     values[4] < 6500.f && values[6] > 1000.f)
-  {
-    if(theFrameInfo.getTimeSince(lastShotRangeLog) >= 2000)
-    {
-      lastShotRangeLog = now;
-      std::printf("MDFZ_SHOTRANGE self=%d oppGoalDist=%.0f oppBallDist=%.0f mode=%s\n",
-        self.number, values[4], values[6], situationMode == SituationMode::chase ? "chase" : "endgame");
-    }
-    request = SkillRequest::Builder::shoot();
-    request.mdfzRule = true;
-    return true;
-  }
-  const Agent* mate=nullptr;
-  for(const Agent& peer:agents)
-    if(peer.number!=self.number&&!peer.isGoalkeeper&&peer.isUpright&&
-       peer.pose.isFinite()&&(!mate||peer.pose.translation.x()>mate->pose.translation.x()))mate=&peer;
-  // what an action needs right now; checked every frame, also while a rule is kept running (it may vanish meanwhile)
-  const auto ready=[&](const MdfzRule& rule)
-  {
-    if(rule.ball&&rule.action==2&&!mate)return false;      // pass needs an upright teammate
-    if(!rule.ball&&rule.action==3&&!nearestOpp)return false; // mark needs a seen opponent
-    return true;
-  };
-  const auto holds=[&](const MdfzRule& rule)
-  {
-    for(const MdfzCond& cond:rule.conds)
-      if(cond.less?!(values[cond.name]<cond.value):!(values[cond.name]>cond.value))return false;
-    return ready(rule);
-  };
-  int chosen=-1;
-  // a rule that fired keeps running for 1 s while the robot keeps its role (no flicker between actions)
-  if(mdfzRules.active>=0&&mdfzRules.active<static_cast<int>(mdfzRules.rules.size())&&mdfzRules.rules[mdfzRules.active].ball==ballRole&&
-     theFrameInfo.getTimeSince(mdfzRules.since)<1000&&ready(mdfzRules.rules[mdfzRules.active]))
-    chosen=mdfzRules.active;
-  else
-    for(int i=0;i<static_cast<int>(mdfzRules.rules.size());++i)
-      if(mdfzRules.rules[i].ball==ballRole&&holds(mdfzRules.rules[i])){chosen=i;break;}
-  if(chosen!=mdfzRules.active){mdfzRules.active=chosen;mdfzRules.since=now;if(chosen>=0&&chosen<16)++mdfzRules.fired[chosen];
-    if(chosen>=0)std::printf("MDFZ_RULE self=%d t=%u rule=%d %s\n",self.number,now,chosen,mdfzRules.rules[chosen].text.c_str());}
-  if(theFrameInfo.getTimeSince(mdfzRules.lastLog)>=10000)
-  {
-    mdfzRules.lastLog=now;std::printf("MDFZ_RULES_STATS self=%d fired=",self.number);
-    for(size_t i=0;i<mdfzRules.rules.size()&&i<16;++i)std::printf("%u%s",mdfzRules.fired[i],i+1<mdfzRules.rules.size()?",":"\n");
-  }
-  if(chosen<0)return false;
-  const MdfzRule& rule=mdfzRules.rules[chosen];
-  if(!ready(rule)){mdfzRules.active=-1;return false;} // never act on a teammate / opponent that is not there
-  const auto clampField=[&](Vector2f p)
-  {
-    p.x()=std::max(theFieldDimensions.xPosOwnGoalArea+300.f,std::min(theFieldDimensions.xPosOpponentGoalLine-300.f,p.x()));
-    p.y()=std::max(theFieldDimensions.yPosRightTouchline+300.f,std::min(theFieldDimensions.yPosLeftTouchline-300.f,p.y()));
-    return p;
-  };
-  const auto walkFacingBall=[&](const Vector2f& p){const Vector2f t=clampField(p);return SkillRequest::Builder::walkTo(Pose2f(Angle((ball-t).angle()),t));};
-  if(rule.ball)
-    switch(rule.action)
-    {
-      case 0: request=SkillRequest::Builder::shoot();break;
-      case 1: request=SkillRequest::Builder::clear();break;
-      case 2:
-      {
-        // Pass decision safety gate (same rating the outlet uses): a blocked lane is
-        // not a pass. In our third fall back to a clear, otherwise carry the ball.
-        const float laneRating=thePassEvaluation.getRating(ball,mate->pose.translation,false);
-        if(std::isfinite(laneRating)&&laneRating>=0.7f)
-          request=SkillRequest::Builder::passTo(mate->number);
-        else
-        {
-          if((ball-ownGoal).norm()<3500.f)
-            request=SkillRequest::Builder::clear();
-          else
-            request=SkillRequest::Builder::dribbleTo(Angle((oppGoal-ball).angle()));
-          if(theFrameInfo.getTimeSince(lastPassGateLog)>=2000)
-          {
-            lastPassGateLog=now;
-            std::printf("MDFZ_PASSGATE self=%d rating=%.2f fallback=%s\n",self.number,
-              std::isfinite(laneRating)?laneRating:-1.f,(ball-ownGoal).norm()<3500.f?"clear":"dribble");
-          }
-        }
-        break;
-      }
-      case 3: request=SkillRequest::Builder::dribbleTo(Angle((oppGoal-ball).angle()));break;
-      default: break; // native: keep the team's own decision
-    }
-  if(rule.ball&&rule.action!=4)request.mdfzRule=true;
-  else
-    switch(rule.action)
-    {
-      case 0: request=walkFacingBall(Vector2f(rule.a,rule.b));break;
-      case 1: request=walkFacingBall(Vector2f(ball.x()-rule.a,ball.y()));break;
-      case 2: request=walkFacingBall(ownGoal+(ball-ownGoal).normalized(std::min(2500.f,(ball-ownGoal).norm()*.5f)));break;
-      case 3: request=SkillRequest::Builder::mark(*nearestOpp);break;
-      default: break;
-    }
-  return rule.action!=4; // native: the list ends here and the team's own logic (formation for support) decides
-}
-
-bool WhiteFleetStrategyBehaviorControl::applyMdfzFormation(SkillRequest& request,const Agent& self)
-{
-  // The supporting field player (not the goalkeeper, not the one playing the ball) goes to its tactic base
-  // position (t211 / t112 of the class's formation), shifted towards the ball by followBall. Pass reception,
-  // set plays (kick-off, free kicks), restarts and the back-field outlet keep priority (checked by the caller and below).
-  if(!mdfzFormation.enabled)return false;
-  const unsigned now=theFrameInfo.time;
-  auto& n=mdfzFormation.n;
-  if(theFrameInfo.getTimeSince(mdfzFormation.lastStats)>=10000)
-  {
-    mdfzFormation.lastStats=now;
-    std::printf("MDFZ_FORMATION_STATS self=%d applied=%u notPlaying=%u keeper=%u active=%u setPlay=%u otherSkill=%u passTarget=%u outlet=%u\n",
-      self.number,n[0],n[1],n[2],n[3],n[4],n[5],n[6],n[7]);
-  }
-  if(theGameState.state!=GameState::playing||theGameState.stopped||theGameState.playerState!=GameState::active){++n[1];return false;}
-  if(self.isGoalkeeper){++n[2];return false;}
-  if(Role::isActiveRole(self.role)){++n[3];return false;}
-  if(self.acceptedSetPlay!=SetPlay::none){++n[4];return false;}
-  if(request.backfieldStrongOutlet||!(request.skill==SkillRequest::walk||request.skill==SkillRequest::stand)||!self.baseTranslation.allFinite()){++n[5];return false;}
-  for(const Teammate& peer:theTeamData.teammates)
-    if(peer.number!=self.number&&peer.theRobotStatus.isUpright&&
-       TeamActivityPolicy::fresh(now,peer.theFrameInfo.time,1200)&&peer.theBehaviorStatus.passTarget==self.number)
-      {++n[6];return false;} // a teammate is passing to this robot: receiving wins
-  const Vector2f ball=theFieldBall.recentBallPositionOnField();
-  Vector2f target=self.baseTranslation;
-  if(ball.allFinite())target+=mdfzFormation.followBall*(ball-self.baseTranslation);
-  // MDFZ v33: 贴中线站位停用(实测负收益). 这一段留空, 需要时把 v29 的代码贴回来即可.
-  target.x()=std::max(theFieldDimensions.xPosOwnGoalArea+300.f,std::min(theFieldDimensions.xPosOpponentGoalLine-300.f,target.x()));
-  target.y()=std::max(theFieldDimensions.yPosRightTouchline+300.f,std::min(theFieldDimensions.yPosLeftTouchline-300.f,target.y()));
-  const Angle facing=Angle(ball.allFinite()?(ball-target).angle():0.f);
-  request=SkillRequest::Builder::walkTo(Pose2f(facing,target));
-  ++n[0];
-  if(theFrameInfo.getTimeSince(mdfzFormation.lastLog)>=1000)
-  {
-    mdfzFormation.lastLog=now;
-    std::printf("MDFZ_FORMATION self=%d tactic=%s base=%.0f,%.0f ball=%.0f,%.0f target=%.0f,%.0f pose=%.0f,%.0f\n",self.number,
-      TypeRegistry::getEnumName(self.acceptedTactic),self.baseTranslation.x(),self.baseTranslation.y(),
-      ball.allFinite()?ball.x():0.f,ball.allFinite()?ball.y():0.f,target.x(),target.y(),
-      theRobotPose.translation.x(),theRobotPose.translation.y());
   }
   return true;
 }
@@ -1253,6 +909,26 @@ void WhiteFleetStrategyBehaviorControl::applyOpponentSidePosition(SkillRequest& 
   }
 }
 
+WhiteFleetMatchTacticalRepair::Point WhiteFleetStrategyBehaviorControl::kickoffDefenseSlot(unsigned rank)
+{
+  // Centre kickoff defence: on by default in the simulator for either team (MDFZ_KICKOFF_DEFENSE_CENTER_ENABLE=0
+  // turns it off for A/B drills); real robot only with the guarded match profile, like the autonomous kickoff.
+  const bool inSim=SystemCall::getMode()==SystemCall::simulatedRobot;
+  const char* flag=nullptr; // platform: no environment variables
+  const bool center=inSim?!(flag&&flag[0]=='0'&&flag[1]=='\0')
+                         :SystemCall::getMode()==SystemCall::physicalRobot&&WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver();
+  const auto slot=center?WhiteFleetMatchTacticalRepair::centerKickoffSlot(rank,theFieldDimensions.centerCircleRadius,theFieldDimensions.xPosOwnGoalLine,
+                                                                theFieldDimensions.xPosOwnPenaltyArea,theFieldDimensions.yPosLeftTouchline)
+                        :WhiteFleetMatchTacticalRepair::defensiveKickoffSlot(rank,theFieldDimensions.centerCircleRadius,
+                                                                   theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.yPosLeftTouchline);
+  if(center&&kickoffDefenseLogged!=theGameState.timeWhenStateStarted)
+  {
+    kickoffDefenseLogged=theGameState.timeWhenStateStarted;
+    std::printf("KICKOFF_DEFENSE_CENTER self=%d rank=%u slot=%.0f,%.0f\n",theGameState.playerNumber,rank,slot.x,slot.y);
+  }
+  return slot;
+}
+
 void WhiteFleetStrategyBehaviorControl::applyDefenseCounter(SkillRequest& request,const Agent& self)
 {
   using namespace WhiteFleetDefenseCounterMath;
@@ -1278,8 +954,7 @@ void WhiteFleetStrategyBehaviorControl::applyDefenseCounter(SkillRequest& reques
       unsigned rank=0;
       for(int number=Settings::lowestValidPlayerNumber;number<theGameState.playerNumber;++number)
         if(!theGameState.ownTeam.isGoalkeeper(number))++rank;
-      const auto slot=WhiteFleetMatchTacticalRepair::defensiveKickoffSlot(rank,theFieldDimensions.centerCircleRadius,
-        theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.yPosLeftTouchline);
+      const auto slot=kickoffDefenseSlot(rank);
       // Stable, separated targets, facing canonical opponent half (+X).
       // Native WalkToPointReady owns final orientation/stand and IllegalAreas.
       request=SkillRequest::Builder::walkTo(Pose2f(0.f,slot.x,slot.y));
@@ -1343,8 +1018,7 @@ void WhiteFleetStrategyBehaviorControl::applyDefenseCounter(SkillRequest& reques
       unsigned rank=0;
       for(int number=Settings::lowestValidPlayerNumber;number<theGameState.playerNumber;++number)
         if(!theGameState.ownTeam.isGoalkeeper(number))++rank;
-      const auto slot=WhiteFleetMatchTacticalRepair::defensiveKickoffSlot(rank,theFieldDimensions.centerCircleRadius,
-        theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.yPosLeftTouchline);
+      const auto slot=kickoffDefenseSlot(rank);
       request=SkillRequest::Builder::walkTo(Pose2f(0.f,slot.x,slot.y));
       WhiteFleetDefenseCounterSwitch::record(3);return;
     }
@@ -1565,8 +1239,16 @@ bool WhiteFleetStrategyBehaviorControl::applyMatchRestart(SkillRequest& request,
     }
     else if(!keeper&&cornerPlan.passer==self.number&&insideBall)
     {
-      const float angle=cornerPlan.selected?(cornerPlan.target-ball).angle():0.f;
-      request=SkillRequest::Builder::walkTo(Pose2f(angle,ball-Vector2f(400.f,0.f).rotated(angle)));
+      // v114: 我方开球时 kicker 不再"走到球边站着等", 直接出脚.
+      // 上一版这里只给 walkTo(skill=walk), PlayBall::kickOff 永远进不去, 于是要等
+      // 对方解除限制压上来、球权判定变化后才踢 -- 用户看到的就是"开局 15 秒不开球".
+      if(ownKickoff)
+        request=SkillRequest::Builder::shoot();
+      else
+      {
+        const float angle=cornerPlan.selected?(cornerPlan.target-ball).angle():0.f;
+        request=SkillRequest::Builder::walkTo(Pose2f(angle,ball-Vector2f(400.f,0.f).rotated(angle)));
+      }
     }
     else if(!keeper)
     {
@@ -2074,90 +1756,4 @@ void WhiteFleetStrategyBehaviorControl::updateAgentByTeamMessage(Agent& agent, c
 void WhiteFleetStrategyBehaviorControl::updateCurrentPosition(Agent& agent)
 {
   agent.currentPosition = Teammate::getEstimatedPosition(agent.lastKnownPose, agent.lastKnownTarget, agent.lastKnownSpeed, theFrameInfo.getTimeSince(agent.lastKnownTimestamp));
-}
-
-void WhiteFleetStrategyBehaviorControl::applyOpponentKickOffStepBack(SkillRequest& request, const Agent& self)
-{
-  const GameState::State state = theGameState.state;
-  const bool opponentKickOff = state == GameState::setupOpponentKickOff ||
-                               state == GameState::waitForOpponentKickOff ||
-                               state == GameState::opponentKickOff;
-  if(!opponentKickOff || self.isGoalkeeper)
-    return;
-  if(!theRobotPose.translation.allFinite())
-    return;
-
-  // v23: decide front/back from the jersey number and the base poses, NOT from
-  // Tactic::Position. In 3v3 the positions handed out are defenderL / midfielder / forward
-  // depending on the roster, so a position-based test silently skipped one of the two
-  // players and left him standing side-by-side with his team mate.
-  const bool front = self.number == 3 ? true : self.number == 2 ? false : [&]
-  {
-    float otherX = 1e9f;
-    for(const Agent& a : agents)
-      if(a.number != self.number && !a.isGoalkeeper && a.baseTranslation.allFinite())
-        otherX = std::min(otherX, a.baseTranslation.x());
-    return self.baseTranslation.allFinite() && otherX < 1e8f && self.baseTranslation.x() > otherX;
-  }();
-
-  // v29: 对方开球现在是短传给最近队友, 不再是长传冲我们半场. 深退等于白送空间.
-  // 改成两个人一起贴中线: 一个顶在圈外压出球线路, 一个在中线后 300mm 守自己那一侧.
-  const float circle = theFieldDimensions.centerCircleRadius;
-  const float side = (self.baseTranslation.allFinite() && self.baseTranslation.y() < 0.f) ? -1.f : 1.f;
-  const Vector2f slot = front ? Vector2f(-(circle + 450.f), 0.f)
-                              : Vector2f(theFieldDimensions.xPosHalfwayLine - 300.f, side * 1800.f);
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), slot));
-
-  if(state != lastKickOffLoggedState || theFrameInfo.getTimeSince(lastKickOffLog) >= 500)
-  {
-    lastKickOffLog = theFrameInfo.time;
-    lastKickOffLoggedState = state;
-    std::printf("MDFZ_KICKOFF_LINE team=%d self=%d state=%d num=%d front=%d slot=%.0f,%.0f skill=%d pos=%d\n",
-                Global::getSettings().teamNumber, self.number, static_cast<int>(state), self.number,
-                front ? 1 : 0, slot.x(), slot.y(), static_cast<int>(request.skill), static_cast<int>(self.position));
-    std::fflush(stdout);
-  }
-}
-
-void WhiteFleetStrategyBehaviorControl::applyCornerKickPositions(SkillRequest& request, const Agent& self)
-{
-  const GameState::State state = theGameState.state;
-  const bool defending = state == GameState::opponentCornerKick;
-  const bool attacking = state == GameState::ownCornerKick;
-  if(!defending && !attacking)
-    return;
-  if(self.isGoalkeeper || request.skill != SkillRequest::walk)
-    return;
-  if(!theFieldBall.positionOnField.allFinite())
-    return;
-
-  const Tactic::Position::Type pos = self.position;
-  const bool defender = pos == Tactic::Position::defender || pos == Tactic::Position::defenderC ||
-                        pos == Tactic::Position::defenderCL || pos == Tactic::Position::defenderCR ||
-                        pos == Tactic::Position::defenderL || pos == Tactic::Position::defenderR;
-  const bool forward = pos == Tactic::Position::forward || pos == Tactic::Position::forwardC ||
-                       pos == Tactic::Position::forwardL || pos == Tactic::Position::forwardR;
-  if(!defender && !forward)
-    return;
-
-  // Ball side: the corner is taken from one touchline, so the near post is on that side.
-  const float side = theFieldBall.positionOnField.y() > 0.f ? 1.f : -1.f;
-  const float goalLine = defending ? theFieldDimensions.xPosOwnGoalLine : theFieldDimensions.xPosOpponentGoalLine;
-  const float dir = defending ? 1.f : -1.f;   // inwards from that goal line
-
-  Vector2f target;
-  if(defending)
-  {
-    // Defender guards the near post, forward covers the top of the box (the man coming
-    // from the centre circle). Three-a-side cannot also mark the taker.
-    target = defender ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                      : Vector2f(goalLine + dir * 2600.f, 0.f);
-  }
-  else
-  {
-    // Attacking: forward attacks the near post, defender stays back for the counter.
-    target = forward ? Vector2f(goalLine + dir * 700.f, side * 1200.f)
-                     : Vector2f(500.f, 0.f);
-  }
-  request = SkillRequest::Builder::walkTo(Pose2f(Angle(0.f), target));
 }

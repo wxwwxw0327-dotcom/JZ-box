@@ -8,7 +8,7 @@
  * universal interception immunity. No speed/radius/obstacle is falsified. */
 namespace WhiteFleetC10KickoffPlanner
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   inline bool rightExperiment(const K::Params& p)
   {return p.nativeReceive&&p.isolated&&p.playbook&&p.side==-1&&p.c12RightMinDegrees>0.f;}
   inline bool experimentAngle(K::Point ball,K::Point target,const K::Params& p,const K::Field& field)
