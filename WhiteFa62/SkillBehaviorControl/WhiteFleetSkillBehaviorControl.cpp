@@ -1285,6 +1285,24 @@ bool WhiteFleetSkillBehaviorControl::handleGoalKickObservation()
 
 void WhiteFleetSkillBehaviorControl::executeRequest()
 {
+  // v125: 开球帧优先. 原来这段在 skill==shoot/pass/dribble/clear 分支里,
+  // 但开球时原生给的 skill 是 walk/stand, 那个分支根本不进 -- 所以一直不开球.
+  {
+    const Vector2f kb=theFieldBall.positionOnField;
+    const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
+        !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
+        theFieldBall.ballWasSeen(300)&&kb.allFinite()&&
+        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
+        (kb-theRobotPose.translation).norm()<2500.f;
+    if(kickoffFrame)
+    {
+      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
+      GoToBallAndKick({.targetDirection=Angle::normalize((aim-kb).angle()-theRobotPose.rotation),
+                       .kickType=KickInfo::rlKickDynamicOld,
+                       .length=std::numeric_limits<float>::max()});
+      return;
+    }
+  }
   if(handleC15Kickoff())return;
   if(handleGoalKickObservation())return; // Called only below the original physical/manual/referee gates.
   if(handleRestartReceive())return; // Restart-only receiver lease beats a transient native playBall reassignment.
