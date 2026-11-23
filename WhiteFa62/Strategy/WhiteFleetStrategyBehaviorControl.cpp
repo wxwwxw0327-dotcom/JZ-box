@@ -142,9 +142,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // v117: 平台的开球状态序列是 setup/waitFor -> 直接 playing(没有 ownKickOff),
   // 日志 OWN_KICKOFF_EVIDENCE 里 raw_state=3, 所以任何 state==ownKickOff 的判断都不会触发.
   // 改成: playing 刚开始的 3 秒内, 球还在中点附近, 我比所有对手都更靠近球 -> 直接出脚.
+  // v118: 去掉 3 秒时间窗 -- v117 在平台上没触发, 最可能是 3 秒内发球人还没走到 1500mm 以内.
+  // 现在只看物理条件: 球在中点附近 + 我是离球最近的人.
   if(self && !wasPenalized && !theGameState.ownTeam.isGoalkeeper(self->number) &&
-     theGameState.state==GameState::playing &&
-     theFrameInfo.getTimeSince(theGameState.timeWhenStateStarted)<3000)
+     theGameState.state==GameState::playing)
   {
     const Vector2f kb=theFieldBall.positionOnField;
     const float myD=(kb-theRobotPose.translation).norm();
@@ -164,7 +165,7 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
                   static_cast<int>(skillRequest.skill));
       std::fflush(stdout);
     }
-    if(nearCentre && myD<1500.f && myD<oppD)
+    if(nearCentre && myD<1800.f && myD<oppD)
       skillRequest=SkillRequest::Builder::shoot();
   }
 
@@ -444,8 +445,9 @@ bool WhiteFleetStrategyBehaviorControl::applyKickoffThrough(SkillRequest& reques
     const float readyHeading=params.playbook&&self.number==receiver?
         WhiteFleetC9ForwardFlank::runHeading({point.x(),point.y()},readyTarget,side,params):
         raceReady?std::atan2(readyTarget.y,readyTarget.x):(Vector2f::Zero()-point).angle();
-    request=theGameState.isSet()?SkillRequest::Builder::stand():
-      SkillRequest::Builder::walkTo(Pose2f(readyHeading,point));
+    // v120: SET 阶段也走向准备点. 原来 isSet() 就 stand, 开球人要在 ownKickOff 才开始走,
+    // 平台上表现为"响哨后 2~3 秒才出脚". 走位在 SET 是允许的(不进中圈/不碰球).
+    request=SkillRequest::Builder::walkTo(Pose2f(readyHeading,point));
     request.kickoffThrough=true;
     request.kickoffThroughAction=theGameState.isSet()?1:2;
     request.kickoffThroughKicker=params.kicker;request.kickoffThroughReceiver=receiver;
