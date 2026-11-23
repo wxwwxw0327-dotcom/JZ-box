@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 /** Physical STAND withdrawal and explicit WALK re-entry. No SDK or motor commands. */
 #pragma once
 
@@ -57,7 +56,7 @@ namespace WhiteFleetBoosterPickupControl
       std::atomic<std::uint64_t> releaseEpoch{0};
       std::atomic<bool> holding{false}, releaseAutomatic{false}, remoteNeutralRequired{false};
     };
-    inline Storage& storage() noexcept {return WhiteFleetSimContext::storage<Storage,106>();}
+    inline Storage& storage() noexcept {static Storage value; return value;}
   }
   /** Only the actual body ButtonEvent callback calls this, never remote keys. */
   inline void observePhysicalButton(unsigned button, bool down) noexcept

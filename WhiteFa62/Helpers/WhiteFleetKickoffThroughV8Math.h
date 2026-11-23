@@ -9,7 +9,7 @@
  * Units: millimetres, seconds for ETA/speeds, milliseconds for session budgets.
  * Response times and speed factors are engineering margins, not calibrated
  * bounds on a learned kick, receiver locomotion or opponent behaviour. */
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   struct Point {float x=0.f,y=0.f;};
   struct Field {float ownGoal=-10940.f,opponentGoal=10940.f,opponentPenalty=7560.f,halfWidth=6940.f,goalHalfWidth=1300.f,penaltyHalfWidth=0.f;};

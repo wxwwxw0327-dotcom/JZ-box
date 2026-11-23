@@ -1,7 +1,7 @@
 /**
- * @file ArmObstacleAvoidance.cpp
+ * @file WhiteFleetArmObstacleAvoidance.cpp
  *
- * This file implements the ArmObstacleAvoidance skills.
+ * This file implements the WhiteFleetArmObstacleAvoidance skills.
  *
  * @author Arne Hasselbring
  */

@@ -1,5 +1,5 @@
 #pragma once
-namespace WhiteFleetC10Kickoff
+namespace C10Kickoff
 {
   struct Phase
   {

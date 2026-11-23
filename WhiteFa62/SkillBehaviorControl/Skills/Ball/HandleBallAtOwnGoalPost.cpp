@@ -18,17 +18,17 @@
 #include <array>
 #include <limits>
 
-namespace WhiteFleetHandleBallAtOwnGoalPost
+namespace HandleBallAtOwnGoalPost
 {
-  struct ContourAngleOffsets
+  struct WhiteFleetContourAngleOffsets
   {
     Angle leftAngleOffset; /**< The offset to the left goal post tangent to avoid standing in a goal post. */
     Angle rightAngleOffset; /**< The offset to the right goal post tangent to avoid standing in a goal post. */
   };
 
-  std::array<ContourAngleOffsets, KickInfo::numOfKickTypes> init(const KickInfo& theKickInfo)
+  std::array<WhiteFleetContourAngleOffsets, KickInfo::numOfKickTypes> WhiteFleetContourInit(const KickInfo& theKickInfo)
   {
-    std::array<ContourAngleOffsets, KickInfo::numOfKickTypes> contourAngleOffsets;
+    std::array<WhiteFleetContourAngleOffsets, KickInfo::numOfKickTypes> contourAngleOffsets;
 
     // This, of course, belongs into a configuration file.
     std::vector<Vector2f> robotShape = {{-30.f, 120.f}, {50.f, 120.f}, {110.f, 80.f}, {110.f, -80.f}, {50.f, -120.f}, {-30.f, -120.f}};
@@ -53,7 +53,7 @@ namespace WhiteFleetHandleBallAtOwnGoalPost
     return contourAngleOffsets;
   }
 }
-using namespace WhiteFleetHandleBallAtOwnGoalPost;
+using namespace HandleBallAtOwnGoalPost;
 using enum KickInfo::KickType;
 
 option((WhiteFleetSkillBehaviorControl) HandleBallAtOwnGoalPost,
@@ -66,7 +66,7 @@ option((WhiteFleetSkillBehaviorControl) HandleBallAtOwnGoalPost,
             (Angle) distanceToSectorBorder), /**< Buffer size for sector used for the kick direction, to determine the precision range. */
        vars((std::array<bool, Arms::numOfArms>)({false, false}) armWasBack, /**< Whether the arm was back in the previous frame. */
             (KickInfo::KickType)(KickInfo::numOfKickTypes) lastKickType, /**< The kick type that has been selected in the previous frame. */
-            (std::array<ContourAngleOffsets, KickInfo::numOfKickTypes>)(init(theKickInfo)) contourAngleOffsets))
+            (std::array<WhiteFleetContourAngleOffsets, KickInfo::numOfKickTypes>)(WhiteFleetContourInit(theKickInfo)) contourAngleOffsets))
 {
   const auto setArm = [&](Arms::Arm arm, const Vector2f& goalPost)
   {
@@ -138,7 +138,7 @@ option((WhiteFleetSkillBehaviorControl) HandleBallAtOwnGoalPost,
     {
       SectorWheel wheel = blueprintWheel;
 
-      const ContourAngleOffsets& angleOffsets = contourAngleOffsets[kickType];
+      const WhiteFleetContourAngleOffsets& angleOffsets = contourAngleOffsets[kickType];
       wheel.addSector(Rangea(Angle::normalize(goalPostAngle0 + angleOffsets.rightAngleOffset),
                              Angle::normalize(goalPostAngle1 + angleOffsets.leftAngleOffset)),
                       0.f, SectorWheel::Sector::erased);

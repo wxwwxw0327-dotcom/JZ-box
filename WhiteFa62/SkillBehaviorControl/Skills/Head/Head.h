@@ -1,5 +1,5 @@
 /**
- * @file Head.h
+ * @file WhiteFleetHead.h
  *
  * This file declares complex skills related to head control.
  *

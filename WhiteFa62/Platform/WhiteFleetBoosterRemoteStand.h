@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 /** Opt-in remote-loss ownership policy. No SDK, motion or mode commands. */
 #pragma once
 
@@ -23,7 +22,7 @@ namespace WhiteFleetBoosterRemoteStand
       // A single CAS binds recovery to the same disconnect generation.
       std::atomic<std::uint64_t> packed{0};
     };
-    inline Storage& remoteStandStorage() noexcept {return WhiteFleetSimContext::storage<Storage,105>();}
+    inline Storage& remoteStandStorage() noexcept {static Storage value; return value;}
   }
 
   inline void enable() noexcept {detail::remoteStandStorage().active.store(true);}

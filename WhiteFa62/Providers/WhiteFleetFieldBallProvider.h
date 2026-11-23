@@ -1,7 +1,7 @@
 /**
  * @file BehaviorControl/WhiteFleetFieldBallProvider/WhiteFleetFieldBallProvider.h
  *
- * Provides the FieldBall for the WhiteFleetBehavior
+ * Provides the FieldBall for the Behavior
  *
  * @author Tim Laue
  */

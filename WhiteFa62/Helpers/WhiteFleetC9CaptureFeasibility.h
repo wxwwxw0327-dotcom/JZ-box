@@ -9,7 +9,7 @@
  */
 namespace WhiteFleetC9CaptureFeasibility
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   struct Forecast
   {
     bool valid=false;

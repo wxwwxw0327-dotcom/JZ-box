@@ -1,7 +1,7 @@
 /**
- * @file CalibrationFinished.cpp
+ * @file WhiteFleetCalibrationFinished.cpp
  *
- * This file implements the CalibrationFinished skill.
+ * This file implements the WhiteFleetCalibrationFinished skill.
  *
  * @author Arne Hasselbring
  */

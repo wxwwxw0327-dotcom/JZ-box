@@ -1,7 +1,7 @@
 /**
- * @file PassTarget.cpp
+ * @file WhiteFleetPassTarget.cpp
  *
- * This file implements the PassTarget skill.
+ * This file implements the WhiteFleetPassTarget skill.
  *
  * @author Arne Hasselbring
  */

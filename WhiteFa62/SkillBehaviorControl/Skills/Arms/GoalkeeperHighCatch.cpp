@@ -1,15 +1,14 @@
-#include "WhiteFleetSimContext.h"
 /**
- * @file GoalkeeperHighCatch.cpp
+ * @file WhiteFleetGoalkeeperHighCatch.cpp
  *
- * This file implements the GoalkeeperHighCatch skill
+ * This file implements the WhiteFleetGoalkeeperHighCatch skill
  *
  * @author Bastian Trimpf
  */
 
 #include "WhiteFleetSkillBehaviorControl.h"
 
-inline unsigned& whiteFleetCatchTime(){return WhiteFleetSimContext::storage<unsigned,900>();}
+unsigned WhiteFleetHighCatchTimestamp;
 option((WhiteFleetSkillBehaviorControl) GoalkeeperHighCatch)
 {
   initial_state(noHighBall)
@@ -41,10 +40,10 @@ option((WhiteFleetSkillBehaviorControl) GoalkeeperHighCatch)
       {
         if((theFieldBall.positionOnField - opponent.position).squaredNorm() <= sqr(oppRange))
         {
-          whiteFleetCatchTime() = theFrameInfo.time;
+          WhiteFleetHighCatchTimestamp = theFrameInfo.time;
         }
       }
-      if(theFrameInfo.getTimeSince(whiteFleetCatchTime()) >= 1000) //keep up arms up until ball reached goalkeeper
+      if(theFrameInfo.getTimeSince(WhiteFleetHighCatchTimestamp) >= 1000) //keep up arms up until ball reached goalkeeper
       {
         goto noHighBall;
       }

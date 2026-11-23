@@ -9,7 +9,7 @@
 /** Read-only witnesses for the existing candidate loop. No audit value feeds a
  * planning decision. The ETA breakdown is explicitly recomputed from the same
  * inputs; result.receiverEta is the value from the actual evaluate() call. */
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   struct CandidateAudit
   {

@@ -29,14 +29,14 @@
 
 using namespace NeuralNetworkONNX;
 
-STREAMABLE(WhiteFleetGetUpKeyframeInfo,
+STREAMABLE(GetUpKeyframeInfo,
 {,
   (Rangea) torsoYRange,
   (Rangea) torsoXRange,
   (float) executionTime,
 });
 
-STREAMABLE(WhiteFleetRecoverMotion,
+STREAMABLE(RecoverMotion,
 {,
   (ENUM_INDEXED_ARRAY(Angle, Joints::Joint)) positions,
   (float) duration,
@@ -78,11 +78,11 @@ MODULE(WhiteFleetGetUpEngine,
     (float) minStandHeightWhenDone,
     (int) helpMeSoundTimeWindow,
     (int) anklePitchStiffness,
-    (std::vector<WhiteFleetGetUpKeyframeInfo>) frontInfo,
-    (std::vector<WhiteFleetGetUpKeyframeInfo>) backInfo,
-    (std::vector<WhiteFleetRecoverMotion>) recoverFront,
-    (std::vector<WhiteFleetRecoverMotion>) recoverBack,
-    (std::vector<WhiteFleetRecoverMotion>) recoverNormal,
+    (std::vector<GetUpKeyframeInfo>) frontInfo,
+    (std::vector<GetUpKeyframeInfo>) backInfo,
+    (std::vector<RecoverMotion>) recoverFront,
+    (std::vector<RecoverMotion>) recoverBack,
+    (std::vector<RecoverMotion>) recoverNormal,
     (Angle) maxTorsoAngleDiff,
   }),
 });
@@ -115,7 +115,7 @@ private:
    */
   void compile(bool output);
 
-  const std::string modelPath = std::string(File::getBHDir()) + "/Config/NeuralNets/GetUpEngine/";
+  const std::string modelPath = std::string(File::getBHDir()) + "/Config/NeuralNets/GetUpEngine/"; // 平台自带这个目录; WhiteFleetGetUpEngine/ 不存在
 };
 
 struct WhiteFleetGetUpPhase : MotionPhase
@@ -159,7 +159,7 @@ private:
   Vector2a closestToZeroAngle = Vector2a::Zero();
   bool allowBreakUp = false;
 
-  std::vector<WhiteFleetRecoverMotion>* recoverMotion;
+  std::vector<RecoverMotion>* recoverMotion;
   std::size_t recoverMotionIndex = 0;
 
   enum State

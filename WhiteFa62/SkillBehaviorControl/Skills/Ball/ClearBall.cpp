@@ -1,7 +1,7 @@
 /**
- * @file ClearBall.cpp
+ * @file WhiteFleetClearBall.cpp
  *
- * This file defines an implementation of the ClearBall skill.
+ * This file defines an implementation of the WhiteFleetClearBall skill.
  *
  * @author Nico Holsten
  */
@@ -18,7 +18,7 @@ option((WhiteFleetSkillBehaviorControl) ClearBall,
   // Should only be necessary when replaying logs
   if(!theClearTarget.isValid)
   {
-    ANNOTATION("ClearBall", "ClearTarget was invalid!");
+    ANNOTATION("WhiteFleetClearBall", "ClearTarget was invalid!");
     OUTPUT_ERROR("ClearTarget was invalid!");
     theClearTarget.update();
   }

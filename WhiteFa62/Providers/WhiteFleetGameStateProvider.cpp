@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetGameStateProvider.cpp
  *
@@ -28,9 +27,6 @@ MAKE_MODULE(WhiteFleetGameStateProvider);
 
 void WhiteFleetGameStateProvider::update(GameState& gameState)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetGameStateProvider");fleetProviderSeen=true;}
   [[maybe_unused]] const auto officialDiagnostic = WhiteFleetBoosterOfficialLiveTest::onDiagnosticExit([&]
   {
     WhiteFleetBoosterOfficialLiveTest::noteGameDiagnostic(theFrameInfo.time, static_cast<unsigned>(gameState.playerState),

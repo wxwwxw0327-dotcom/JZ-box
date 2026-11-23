@@ -1,5 +1,5 @@
 /**
- * @file PublishMotion.cpp
+ * @file WhiteFleetPublishMotion.cpp
  *
  * This skill records the walkingTo target and desired speed in the BehaviorStatus
  * to be published to teammates.

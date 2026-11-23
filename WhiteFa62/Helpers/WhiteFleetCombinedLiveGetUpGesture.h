@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 #pragma once
 
 #include <atomic>
@@ -287,7 +286,7 @@ namespace WhiteFleetCombinedLiveGetUpGesture
       std::atomic<unsigned> frame{0};
       std::atomic<std::uint64_t> epoch{0};
     };
-    inline Admission& admissionStorage() {return WhiteFleetSimContext::storage<Admission,112>();}
+    inline Admission& admissionStorage() {static Admission value; return value;}
   }
   inline void offerPrepare(unsigned frame, std::uint64_t epoch) noexcept
   {

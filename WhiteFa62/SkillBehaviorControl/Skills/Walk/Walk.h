@@ -1,5 +1,5 @@
 /**
- * @file Walk.h
+ * @file WhiteFleetWalk.h
  *
  * This file declares complex skills related to walking.
  *
@@ -33,7 +33,7 @@ option(TurnToPoint, args((const Vector2f&) target,
 /**
  * This skill walks to a target that is modified by a potential field.
  * @param target The target pose in absolute field coordinates
- * @param straight Walk straight to the target (ballFactor, useRotation and rotation are ignored)
+ * @param straight WhiteFleetWalk straight to the target (ballFactor, useRotation and rotation are ignored)
  * @param ballFactor How much should the robot turn to the ball when moving to its target in [0, 1]
  * @param useRotation Use \c rotation when close the target instead of the rotation to the ball
  * @param rotation The rotation relative to the robot if \c useRotation is true

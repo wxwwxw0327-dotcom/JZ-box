@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetInterceptBallProvider.cpp
  *
@@ -20,9 +19,6 @@ MAKE_MODULE(WhiteFleetInterceptBallProvider);
 
 void WhiteFleetInterceptBallProvider::update(InterceptBallGenerator& theInterceptBallGenerator)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetInterceptBallProvider");fleetProviderSeen=true;}
   DEBUG_DRAWING("motion:RobotPose", "drawingOnField") // Set the origin to the robot's current position
   {
     ORIGIN("motion:RobotPose", theRobotPose.translation.x(), theRobotPose.translation.y(), theRobotPose.rotation);

@@ -1,5 +1,5 @@
 /**
- * @file PanAndTiltGrid.cpp
+ * @file WhiteFleetPanAndTiltGrid.cpp
  *
  * This file implements a skill that moves the head in steps between the maximum pan and tilt, relative to the current orientation.
  *

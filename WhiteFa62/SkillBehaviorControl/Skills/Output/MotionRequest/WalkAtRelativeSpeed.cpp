@@ -1,7 +1,7 @@
 /**
- * @file WalkAtRelativeSpeed.cpp
+ * @file WhiteFleetWalkAtRelativeSpeed.cpp
  *
- * This file implements the WalkAtRelativeSpeed skill.
+ * This file implements the WhiteFleetWalkAtRelativeSpeed skill.
  *
  * @author Arne Hasselbring
  */

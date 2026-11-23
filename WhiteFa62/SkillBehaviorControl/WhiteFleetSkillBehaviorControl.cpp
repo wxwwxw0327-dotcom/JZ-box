@@ -1,5 +1,3 @@
-#include "WhiteFleetSimEntry.h"
-#include "WhiteFleetSimPhysical.h"
 /**
  * @file WhiteFleetSkillBehaviorControl.cpp
  *
@@ -30,7 +28,7 @@ namespace
 {
   inline bool red2EnhancedRunAllowed()
   {
-    return (WhiteFleetSimPhysical::simulated()&&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&
+    return (SystemCall::getMode()==SystemCall::simulatedRobot&&
             Global::getSettings().playerNumber==2)||
            (WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver()&&Global::getSettings().playerNumber==2);
   }
@@ -47,28 +45,6 @@ WhiteFleetSkillBehaviorControl::WhiteFleetSkillBehaviorControl() :
 
 void WhiteFleetSkillBehaviorControl::update(ActivationGraph&)
 {
-  WhiteFleetSimPhysical::ensureProfile(); // SIM-only physical-path emulation
-
-  if(std::getenv("MDFZ_MATCH_CONTACT_AUDIT_ENABLE") &&
-     (theGameState.ownTeam.number==5 || theGameState.ownTeam.number==70) &&
-     theGameState.playerNumber>=1 && theGameState.playerNumber<=3)
-  {
-    static thread_local bool goal3FieldWitness=false;
-    if(!goal3FieldWitness)
-    {
-      std::printf("MATCH_FIELD_ACTUAL team=%u player=%u goal_line_mm=%.3f post_left_mm=%.3f post_right_mm=%.3f post_radius_mm=%.3f clear_goal_mm=%.3f\n",
-        unsigned(theGameState.ownTeam.number),unsigned(theGameState.playerNumber),
-        theFieldDimensions.xPosOpponentGoalLine,theFieldDimensions.yPosLeftGoal,
-        theFieldDimensions.yPosRightGoal,theFieldDimensions.goalPostRadius,
-        theFieldDimensions.yPosLeftGoal-theFieldDimensions.yPosRightGoal-2.f*theFieldDimensions.goalPostRadius);
-      std::fflush(stdout);goal3FieldWitness=true;
-    }
-  }
-
-
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetSkillBehaviorControl");fleetProviderSeen=true;}
   DECLARE_DEBUG_RESPONSE("option:ManualCameraCalibration:finishNow");
   DECLARE_DEBUG_RESPONSE("option:ManualCameraCalibration:prepareRecording");
   DECLARE_DEBUG_DRAWING("option:ClearBall:bonus", "drawingOnField");
@@ -196,8 +172,8 @@ void WhiteFleetSkillBehaviorControl::update(ActivationGraph&)
   theMotionRequest.shouldWalkOutOfBallLine = !commissioning && !WhiteFleetBoosterPickupControl::held() && theInterceptBallInformation.walkOutOfBallPath && !theBehaviorStateInformation.remoteControlActive;
   if(autonomousRunOnlyThisFrame)
     theMotionRequest.shouldInterceptBall=false; // Do not replace fixed navigation with an automatic ball chase.
-  if(theBehaviorParameters.c15ReceiverSimMaxRun&&WhiteFleetSimPhysical::simulated()
-     &&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2
+  if(theBehaviorParameters.c15ReceiverSimMaxRun&&SystemCall::getMode()==SystemCall::simulatedRobot
+     &&Global::getSettings().playerNumber==2
      &&theMotionRequest.fixedRunDriveCoordinateVersion==2u&&theMotionRequest.fixedRunDriveFrame==theFrameInfo.time
      &&theMotionRequest.motion==MotionRequest::walkToPose)
   {
@@ -250,15 +226,15 @@ void WhiteFleetSkillBehaviorControl::publishRestartPassIntent()
 
 void WhiteFleetSkillBehaviorControl::maintainAutonomousKickoffContext(bool retireActive)
 {
-  const bool enabled=WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-      WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
+  const bool enabled=WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+      WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
       Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE"));
   const bool authorized=enabled&&theGameState.playerState==GameState::active&&!theGameState.stopped&&!theGameControllerData.stopped&&
       theGameControllerData.setPlay==SET_PLAY_NONE&&
       !theBehaviorStateInformation.remoteControlActive&&!WhiteFleetBoosterPickupControl::held()&&!WhiteFleetBoosterRemoteStand::held()&&
       !theSystemSensorData.emergencyMode&&!theEmergencyButtonState.buttonPressed&&theFallDownState.state==FallDownState::upright&&
       (theMotionInfo.executedPhase==MotionPhase::stand||theMotionInfo.executedPhase==MotionPhase::walk)&&
-      (SystemCall::getMode()!=SystemCall::physicalRobot||WhiteFleetSimPhysical::bodyAuthorized());
+      (SystemCall::getMode()!=SystemCall::physicalRobot||WhiteFleetBoosterOfficialLiveTest::bodyAuthorized());
   const bool own=theGameState.state==GameState::ownKickOff&&theGameState.isForOwnTeam();
   if(!authorized||(!own&&theGameState.state!=GameState::playing))
   {
@@ -527,7 +503,7 @@ bool WhiteFleetSkillBehaviorControl::handleAutonomousKickoffReceive()
   {autonomousReceiveEvent=0;autonomousReceiveSender=-1;autonomousReceiveFinishing=false;autonomousReceiveContactSeenAt=0;}
   const float variance=theRobotPose.covariance(2,2);
   const bool bodyAllowed=!theGameState.stopped&&!theGameControllerData.stopped&&theGameState.playerState==GameState::active&&
-      (SystemCall::getMode()!=SystemCall::physicalRobot||WhiteFleetSimPhysical::bodyAuthorized())&&
+      (SystemCall::getMode()!=SystemCall::physicalRobot||WhiteFleetBoosterOfficialLiveTest::bodyAuthorized())&&
       !theSystemSensorData.emergencyMode&&!theEmergencyButtonState.buttonPressed&&
       !theBehaviorStateInformation.remoteControlActive&&!WhiteFleetBoosterPickupControl::held()&&!WhiteFleetBoosterRemoteStand::held()&&
       theFallDownState.state==FallDownState::upright&&
@@ -1149,8 +1125,8 @@ bool WhiteFleetSkillBehaviorControl::handleAutonomousKickoffReceive()
   }
   const Vector2f navigationTarget=guideTarget(theRobotPose.translation);
   const Vector2f relative=theRobotPose.inverse()*navigationTarget;
-  const bool simDirect=red2Native&&WhiteFleetSimPhysical::simulated()&&
-      WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2&&
+  const bool simDirect=red2Native&&SystemCall::getMode()==SystemCall::simulatedRobot&&
+      Global::getSettings().playerNumber==2&&
       theBehaviorParameters.c15ReceiverSimMaxRun&&!theInterceptBallInformation.walkOutOfBallPath&&
       !theMotionRequest.shouldWalkOutOfBallLine;
   if(simDirect)
@@ -1201,8 +1177,8 @@ bool WhiteFleetSkillBehaviorControl::handleC15Kickoff()
 {
   if(theGameState.state!=GameState::ownKickOff&&theGameState.state!=GameState::playing)
     autonomousReceiveEvent=0; // A new set play cannot inherit the old run.
-  if(WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-       WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
+  if(WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+       WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
        Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE"))
      &&(theGameState.state==GameState::ownKickOff||theGameState.state==GameState::playing))
   {
@@ -1218,7 +1194,7 @@ bool WhiteFleetSkillBehaviorControl::handleC15Kickoff()
       lastDispatchLog=theFrameInfo.time;
       std::printf("NATIVE_KICKOFF_DISPATCH self=%d state=%u skill=%u legacy_c15_bypassed=1 physical=%d\n",
           theGameState.playerNumber,static_cast<unsigned>(theGameState.state),
-          static_cast<unsigned>(theSkillRequest.skill),WhiteFleetSimPhysical::physical());
+          static_cast<unsigned>(theSkillRequest.skill),SystemCall::getMode()==SystemCall::physicalRobot);
     }
     if(handleKickerPostKickHold())return true;
     if(handleAutonomousKickoffReceive())return true;
@@ -1242,8 +1218,8 @@ bool WhiteFleetSkillBehaviorControl::handleC15Kickoff()
 
 bool WhiteFleetSkillBehaviorControl::suppressC15Receive(const Teammate& teammate) const
 {
-  if(WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-       WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
+  if(WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+       WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
        Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE")))
   {
     if(theGameState.state==GameState::ownKickOff)return true; // Only the fresh addressed path above owns kickoff reception.
@@ -1316,7 +1292,7 @@ void WhiteFleetSkillBehaviorControl::executeRequest()
   {
     if(theFrameInfo.getTimeSince(timeWhenAnnouncedEmptySkillRequest) > 5000)
     {
-      ANNOTATION("WhiteFleetBehavior", "Skill request is empty");
+      ANNOTATION("Behavior", "Skill request is empty");
       SystemCall::say("Skill request is empty");
       timeWhenAnnouncedEmptySkillRequest = theFrameInfo.time;
     }
@@ -1423,7 +1399,7 @@ void WhiteFleetSkillBehaviorControl::handleWalkSpeedAtFieldBorder()
   // TODO Special Handling for KickIns/CornerKicks
   Vector2f robotPose = theRobotPose.translation;
   const float clipRatio = Rangef::ZeroOneRange().limit(theFieldDimensions.clipToField(robotPose, fieldBorderOffset) / outSideFieldBorderRange);
-  Pose2f maxWalkSpeed(std::min(std::abs(maxWalkSpeedAtFieldBorder.rotation / theWalkingEngineOutput.maxSpeed.rotation), std::abs(theMotionRequest.walkSpeed.rotation)) * (std::signbit(static_cast<float>(theMotionRequest.walkSpeed.rotation)) ? -1.f : 1.f),
+  Pose2f maxWalkSpeed(std::min(std::abs(maxWalkSpeedAtFieldBorder.rotation / theWalkingEngineOutput.maxSpeed.rotation), std::abs(theMotionRequest.walkSpeed.rotation)) * (std::signbit(theMotionRequest.walkSpeed.rotation) ? -1.f : 1.f),
                       std::min(std::abs(maxWalkSpeedAtFieldBorder.translation.x() / theWalkingEngineOutput.maxSpeed.translation.x()), std::abs(theMotionRequest.walkSpeed.translation.x())) * (std::signbit(theMotionRequest.walkSpeed.translation.x()) ? -1.f : 1.f),
                       std::min(std::abs(maxWalkSpeedAtFieldBorder.translation.y() / theWalkingEngineOutput.maxSpeed.translation.y()), std::abs(theMotionRequest.walkSpeed.translation.y())) * (std::signbit(theMotionRequest.walkSpeed.translation.y()) ? -1.f : 1.f));
 

@@ -1,7 +1,7 @@
 /**
- * @file GoToBallAndKick.cpp
+ * @file WhiteFleetGoToBallAndKick.cpp
  *
- * This file implements the GoToBallAndKick skill.
+ * This file implements the WhiteFleetGoToBallAndKick skill.
  *
  * @author Arne Hasselbring
  */

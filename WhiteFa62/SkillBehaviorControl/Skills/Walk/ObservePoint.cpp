@@ -1,7 +1,7 @@
 /**
- * @file ObservePoint.cpp
+ * @file WhiteFleetObservePoint.cpp
  *
- * This file implements the ObservePoint skill.
+ * This file implements the WhiteFleetObservePoint skill.
  *
  * @author Nicole Schrader
  */

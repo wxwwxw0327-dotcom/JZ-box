@@ -20,7 +20,6 @@
  */
 
 #include "WhiteFleetSkillBehaviorControl.h"
-#include "WhiteFleetSimPhysical.h"
 #include "WhiteFleetMatchTacticalRepair.h"
 #include "Framework/ModuleGraphRunner.h"
 #include "Platform/SystemCall.h"
@@ -29,7 +28,7 @@
 #include "MathBase/Approx.h"
 #include <cmath>
 
-namespace WhiteFleetZweikampf
+namespace Zweikampf
 {
   STREAMABLE(SearchParameters,
   {,
@@ -133,7 +132,7 @@ namespace WhiteFleetZweikampf
     other,
   });
 
-  struct DuelPose
+  struct WhiteFleetDuelPose
   {
     float rating = 0.f; /**< Rating of the kick. Small == good, high == bad. */
     Angle kickAngle = 0_deg; /**< Kick direction. */
@@ -150,7 +149,7 @@ namespace WhiteFleetZweikampf
   /**
    * Local copy of theSkillRequest
    */
-  struct SkillRequestPose
+  struct WhiteFleetSkillRequestPose
   {
     Pose2f target;
     Rangea passRangeOne;
@@ -163,7 +162,7 @@ namespace WhiteFleetZweikampf
   /**
    * Mapping of every kick range(that should be checked) to a rating.
    */
-  struct RatingMap
+  struct WhiteFleetRatingMap
   {
     std::optional<float> rating; /**< Rating of the range. */
     float range = 0.f; /**< The kick range. */
@@ -185,7 +184,7 @@ namespace WhiteFleetZweikampf
    * @param direction Direction and length of the kick
    * @param rangeForGoal The range to reach the goal
    */
-  float RatingMap::ratingFunc(const FieldRating& theFieldRating, const int passTarget, const Vector2f& useBallPosition,
+  float WhiteFleetRatingMap::ratingFunc(const FieldRating& theFieldRating, const int passTarget, const Vector2f& useBallPosition,
                               const bool isTypeSteal, const Vector2f& direction, const float rangeForGoal)
   {
     if(this->rating.has_value())
@@ -219,25 +218,25 @@ namespace WhiteFleetZweikampf
    * The struct that contains the information of the ratings on the field.
    * It is used to calculate the ratings on demand, to reduce computation time.
    */
-  struct RatingMapVector
+  struct WhiteFleetRatingMapVector
   {
-    std::vector<RatingMap> ratingMap;
+    std::vector<WhiteFleetRatingMap> ratingMap;
     const bool isTypeSteal;
     const Vector2f direction;
     const float rangeForGoal;
     const int passTarget;
     const Vector2f useBallPosition;
 
-    RatingMapVector(const bool isTypeSteal, const Vector2f& direction, const float rangeForGoal, const int passTarget, const Vector2f& useBallPosition) :
+    WhiteFleetRatingMapVector(const bool isTypeSteal, const Vector2f& direction, const float rangeForGoal, const int passTarget, const Vector2f& useBallPosition) :
       isTypeSteal(isTypeSteal), direction(direction), rangeForGoal(rangeForGoal), passTarget(passTarget), useBallPosition(useBallPosition) {}
 
-    float ratingFunc(const FieldRating& theFieldRating, RatingMap& ratingMap);
+    float ratingFunc(const FieldRating& theFieldRating, WhiteFleetRatingMap& ratingMap);
   };
 
   /**
    * Interface to get the ratings
    */
-  float RatingMapVector::ratingFunc(const FieldRating& theFieldRating, RatingMap& ratingMap)
+  float WhiteFleetRatingMapVector::ratingFunc(const FieldRating& theFieldRating, WhiteFleetRatingMap& ratingMap)
   {
     return ratingMap.ratingFunc(
              theFieldRating, this->passTarget, this->useBallPosition, this->isTypeSteal, this->direction, this->rangeForGoal);
@@ -246,14 +245,14 @@ namespace WhiteFleetZweikampf
   /**
    * Definition of a sector with an obstacle in it. Used for the sector wheel.
    */
-  struct ObstacleSector
+  struct WhiteFleetObstacleSector
   {
     Rangea sector; /**< The angular range relative to the ball that the obstacle blocks. */
     float distance; /**< The distance of the obstacle to the ball. */
     float x; /**< The x coordinate on field of the obstacle. */
   };
 }
-using namespace WhiteFleetZweikampf;
+using namespace Zweikampf;
 
 option((WhiteFleetSkillBehaviorControl) Zweikampf,
        load((SearchParameters) searchParameters, /**< Parameters to decide which kick angles are checked. */
@@ -283,10 +282,10 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
 
             (std::vector<KickInfo::KickType>) allowedKicks, /**< The allowed InWalkKicks */
             (Rangef) minKickRange), /**< Use min kick range based on field position. */
-       vars((DuelPose) theDuelPose, /**< All information about the "to be executed" kick */
+       vars((WhiteFleetDuelPose) theDuelPose, /**< All information about the "to be executed" kick */
             (Angle)(0_deg) lastKickAngle, /**< Last kick angle with odometry update */
             (Angle)(0_deg) lastRobotPoseRotation, /**< Last RobotPose rotation */
-            (SkillRequestPose) theSkillRequestPose, /**< All information about the current behavior request */
+            (WhiteFleetSkillRequestPose) theSkillRequestPose, /**< All information about the current behavior request */
             (unsigned)(0) timeSinceDoingNothing, /**< timestamp since no kick was calculated */
             (unsigned)(0) lastForwardSteal, /**< timestamp since last forwardSteal was the best kick */
             (unsigned)(0) lastSidewardRestrictionTimestamp, /**< Last timestamp, when sidewards kick was restricted */
@@ -472,7 +471,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
       const Angle fieldAngle = (theSkillRequestPose.target.translation - useBallPositionInField).angle();
       if(!allowPassAngle.isInside(fieldAngle) &&
          (opponentOnField - useBallPositionInField).squaredNorm() < sqr(obstacleHandling.obstacleMinDistanceForBackPass) &&
-         std::abs(Angle::normalize(fieldAngle - theRobotPose.rotation)) > passOrientation) // MDFZ v32: 必须 normalize, 否则 ±180° 附近判反
+         std::abs(fieldAngle - theRobotPose.rotation) > passOrientation) // the robot must be aligned good enough for the pass already
       {
         ignoreSkillRequestTimestamp = theFrameInfo.time;
         theSkillRequestPose.skill = SkillRequest::shoot;
@@ -489,7 +488,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
   {
     Vector2f dummyOB(1.f, 0.f);
 
-    const auto calcObstacleInSector = [&](const Obstacle& obstacle, ObstacleSector& dummyObstacleSector)
+    const auto calcObstacleInSector = [&](const Obstacle& obstacle, WhiteFleetObstacleSector& dummyObstacleSector)
     {
       Vector2f useObstacleCenter = obstacle.center;
       bool filterSector = false;
@@ -537,8 +536,8 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
       return true;
     };
 
-    std::vector<ObstacleSector> obstacleSectors;
-    ObstacleSector dummyObstacleSector;
+    std::vector<WhiteFleetObstacleSector> obstacleSectors;
+    WhiteFleetObstacleSector dummyObstacleSector;
     for(const Obstacle& obstacle : theObstacleModel.obstacles)
     {
       if(calcObstacleInSector(obstacle, dummyObstacleSector))
@@ -570,7 +569,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     if(angleToLeftPost > angleToRightPost)
       wheel.addSector(Rangea(angleToRightPost, angleToLeftPost), std::numeric_limits<float>::max(), SectorWheel::Sector::goal);
 
-    for(const ObstacleSector& obstacleSector : obstacleSectors)
+    for(const WhiteFleetObstacleSector& obstacleSector : obstacleSectors)
       wheel.addSector(obstacleSector.sector, obstacleSector.distance, SectorWheel::Sector::obstacle);
     kickAnglesPre = wheel.finish();
 
@@ -694,10 +693,10 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
    * Calculate the rating of a given kick, based on theFieldRating and some other constraints
    * Also filter some kicks out before calculating the ratings, to reduce computation time
    */
-  const auto getDuelRating = [&](const KickInfo::KickType kickType, const Angle kickAngle, DuelPose& duelPose,
+  const auto getDuelRating = [&](const KickInfo::KickType kickType, const Angle kickAngle, WhiteFleetDuelPose& duelPose,
                                  const Angle minMaxAngle, const bool isGoalAngle, const float maxKickRange, const float distanceToOutOfFieldSquared,
                                  const Rangea& stealBallBonusMin, const Rangea& stealBallBonusMax, const Angle angleFromBallToOpponent,
-                                 RatingMapVector& ratingMapVector, const float rangeForGoal,
+                                 WhiteFleetRatingMapVector& ratingMapVector, const float rangeForGoal,
                                  const Angle angleFromGoalToBall, const TargetType highestTargetType,
                                  const float dribbleRange) -> bool
   {
@@ -705,7 +704,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     Vector2f ballOffset(theKickInfo[kickType].ballOffset);
     Rangef useKickRange = theKickInfo[kickType].range;
 
-    DuelPose pose;
+    WhiteFleetDuelPose pose;
     // 8.4.6. Calculate kick pose
     pose.noKick = false;
     pose.kickType = kickType;
@@ -907,20 +906,20 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
   /**
    * Draw the ratings of the best types
    */
-  const auto drawRating = [&](std::vector<DuelPose>& duelPoses)
+  const auto drawRating = [&](std::vector<WhiteFleetDuelPose>& duelPoses)
   {
     Rangef minMaxDrawRatings(-1.f, 1.f); // Reset
-    for(DuelPose& pose : duelPoses)
+    for(WhiteFleetDuelPose& pose : duelPoses)
     {
       minMaxDrawRatings.min = std::min(pose.rating, minMaxDrawRatings.min);
       minMaxDrawRatings.max = std::max(pose.rating, minMaxDrawRatings.max);
     }
     std::vector<float> ranges;
-    DuelPose* lastUniqueKick = nullptr;
+    WhiteFleetDuelPose* lastUniqueKick = nullptr;
     const float minShift = (minMaxDrawRatings.min + minMaxDrawRatings.max) / 2.f;
     const float ratingRange = (minMaxDrawRatings.max - minMaxDrawRatings.min) / 2.f;
 
-    for(DuelPose& pose : duelPoses)
+    for(WhiteFleetDuelPose& pose : duelPoses)
     {
       // do not over draw better ratings
       if(!lastUniqueKick || lastUniqueKick->kickAngle != pose.kickAngle)
@@ -981,10 +980,10 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     if(theFrameInfo.getTimeSince(timeSinceDoingNothing) > duelTimings.inactiveAfterDoingNothing)
       timeSinceDoingNothing = theFrameInfo.time;
 
-    DuelPose lastDuelPose = theDuelPose;
+    WhiteFleetDuelPose lastDuelPose = theDuelPose;
     std::vector<Angle> directionPossibilities;
     Angle minMaxAngle;
-    std::vector<std::vector<DuelPose>> duelPoses;
+    std::vector<std::vector<WhiteFleetDuelPose>> duelPoses;
     for(std::size_t i = 0; i < TargetType::numOfTargetTypes; i++)
       duelPoses.emplace_back();
 
@@ -996,7 +995,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     // 2. Calculate distance metric between us and the opponent to the ball
     // fast simulation scenes need in theory a 50 to 100 mm shift
     const float opponentAndSelfDistanceToBallDiff = (opponentOnField - useBallPositionInField).norm() - std::max(0.f, useBallPositionRelative.norm() - (theRobotDimensions.footLength + theBallSpecification.radius)) // distance to ball for duelObstacle and self
-    - ((ModuleGraphRunner::getInstance().getProvider("RobotPose") == "LogDataProvider" || ModuleGraphRunner::getInstance().getProvider("RobotPose") == "SimulatedWorldModelProvider") && WhiteFleetSimPhysical::simulated() ? 100.f : 0.f); // fast simulation scene robot shift
+    - ((ModuleGraphRunner::getInstance().getProvider("RobotPose") == "LogDataProvider" || ModuleGraphRunner::getInstance().getProvider("RobotPose") == "SimulatedWorldModelProvider") && SystemCall::getMode() == SystemCall::simulatedRobot ? 100.f : 0.f); // fast simulation scene robot shift
 
     // 3. Calculate variables, which disable and enable specific kicks or behavior
     // 3.1. Calculate variables, which disable and enable the side kick
@@ -1153,13 +1152,12 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     bool obstacleWallBehindBall = false;
     for(const SectorWheel::Sector& sector : kickAngles)
     {
-      // MDFZ v32: 对手区间是场系, sector 是机器人系, 必须减去朝向; 原来取 (max+min)/2 少了这一步
-      if(sector.angleRange.isInside(Angle::normalize(leftAngleRangeBallToOpponent.getCenter() - theRobotPose.rotation)) &&
+      if(sector.angleRange.isInside((leftAngleRangeBallToOpponent.max - leftAngleRangeBallToOpponent.max) * 0.5f) &&
          sector.type == SectorWheel::Sector::obstacle)
       {
         obstacleWallBehindBall = sector.distance -
                                  std::max(0.f, useBallPositionRelative.norm() - (theRobotDimensions.footLength + theBallSpecification.radius)) -
-                                 ((ModuleGraphRunner::getInstance().getProvider("RobotPose") == "LogDataProvider" || ModuleGraphRunner::getInstance().getProvider("RobotPose") == "SimulatedWorldModelProvider") && WhiteFleetSimPhysical::simulated() ? 100.f : 0.f)
+                                 ((ModuleGraphRunner::getInstance().getProvider("RobotPose") == "LogDataProvider" || ModuleGraphRunner::getInstance().getProvider("RobotPose") == "SimulatedWorldModelProvider") && SystemCall::getMode() == SystemCall::simulatedRobot ? 100.f : 0.f)
                                  <= obstacleHandling.maxObstacleDistanceForWalkStealBallKick;
         break;
       }
@@ -1315,7 +1313,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
 
       // 8.3. calculate the fieldRating once before hand to save computation time
       const Vector2f direction = Vector2f::polar(1.f, kickAngle + theRobotPose.rotation);
-      RatingMapVector rangeRatingVector(isTypeStealBall, direction, rangeForGoal, theSkillRequestPose.passTarget, useBallPositionInField);
+      WhiteFleetRatingMapVector rangeRatingVector(isTypeStealBall, direction, rangeForGoal, theSkillRequestPose.passTarget, useBallPositionInField);
 
       // Prepare rating map
       for(const float range : checkKickDistancesForFR)
@@ -1339,7 +1337,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
               leftForwardStealRange.isInside(Angle::normalize(kickAngle + theRobotPose.rotation))) || // only for kicks going to the side
             opponentAndSelfDistanceToBallDiff > obstacleHandling.maxObstacleDistanceForWalkStealBallKick)) // only if the opponent is closer to the ball
           continue;
-        DuelPose pose;
+        WhiteFleetDuelPose pose;
         const bool possible = getDuelRating(kickType, kickAngle, pose,
                                             minMaxAngle, isGoalAngle,
                                             maxKickRange, distanceToFieldBorderSquared,
@@ -1356,7 +1354,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     }
 
     // Find duelPose list with highest priority. GoalShots > StealBall > Pass > Others
-    std::vector<DuelPose>* toBeCheckDuelPoses = nullptr;
+    std::vector<WhiteFleetDuelPose>* toBeCheckDuelPoses = nullptr;
     TargetType targetType = static_cast<TargetType>(0);
     for(auto& vec : duelPoses)
     {
@@ -1369,12 +1367,12 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     }
     if(toBeCheckDuelPoses)
     {
-      DuelPose* bestPose = &(toBeCheckDuelPoses->front());
+      WhiteFleetDuelPose* bestPose = &(toBeCheckDuelPoses->front());
       // 9. Get the best kick
       // TODO use a std::map, with ENUM(GoalShots, ForwardSteal, Otherwise)
       // Only needs to check for the highest priority
       // Can skip lower ones already when still checking for kick angles! Can safe a lot of computation
-      for(DuelPose& pose : *toBeCheckDuelPoses)
+      for(WhiteFleetDuelPose& pose : *toBeCheckDuelPoses)
       {
         if(pose.rating < bestPose->rating) // Better rating is accepted
           bestPose = &pose;
@@ -1436,7 +1434,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
       if(((theDuelPose.kickType == KickInfo::walkForwardStealBallLeft || theDuelPose.kickType == KickInfo::walkForwardStealBallRight) && theFrameInfo.getTimeSince(timeSinceDoingNothing) > duelTimings.noKickStealMinTime) ||
          (!(theDuelPose.kickType == KickInfo::walkForwardStealBallLeft || theDuelPose.kickType == KickInfo::walkForwardStealBallRight) && theFrameInfo.getTimeSince(timeSinceDoingNothing) > duelTimings.noKickMinTime))
       {
-        DuelPose noPose;
+        WhiteFleetDuelPose noPose;
         const Angle rotation = (theFieldBall.positionOnField - Vector2f(theFieldDimensions.xPosOwnGoalLine, 0.f)).angle();
         noPose.pose = theRobotPose.inverse() * Pose2f(rotation, Vector2f::polar(-obstacleHandling.noKickBlockingPose, rotation) + theFieldBall.positionOnField);
         noPose.noKick = true;
@@ -1474,7 +1472,7 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     {
       const Rangef ttrbRange(0.f, 1.f);
       const float ballVelocityFactor = mapToRange(theFieldBall.positionRelative.norm(), ballPositionInterpolationRange.min, ballPositionInterpolationRange.max, 0.f, 1.f);
-      useBallPositionRelative = (1.f - ballVelocityFactor) * theFieldBall.positionRelative + ballVelocityFactor * theFieldBall.endPositionRelative;
+      useBallPositionRelative = (1.f - ballVelocityFactor) * theFieldBall.positionRelative + ballVelocityFactor * theFieldBall.positionRelative;
       useBallPositionInField = theRobotPose * useBallPositionRelative;
       useBallPositionInField.x() = ballClipX.limit(useBallPositionInField.x());
       useBallPositionInField.y() = ballClipY.limit(useBallPositionInField.y());
@@ -1526,7 +1524,6 @@ option((WhiteFleetSkillBehaviorControl) Zweikampf,
     std::sort(distances.begin(), distances.end(), [](const float& d1, const float& d2) { return d1 < d2; });
 
     // reset and save every unique range
-    checkKickDistancesForFR.clear(); // vars persist across option activations; without clearing the list grows every duel
     float lastRange = -1.f;
     for(float dis : distances)
     {

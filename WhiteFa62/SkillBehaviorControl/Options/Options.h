@@ -1,5 +1,5 @@
 /**
- * @file Options.h
+ * @file WhiteFleetOptions.h
  *
  * This file declares all options in the WhiteFleetSkillBehaviorControl.
  *

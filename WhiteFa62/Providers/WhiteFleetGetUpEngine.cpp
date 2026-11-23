@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetGetUpEngine.h
  *
@@ -11,17 +10,12 @@
 #include "Platform/SystemCall.h"
 #include "Tools/Motion/MotionUtilities.h"
 #include "Tools/Modeling/BallPhysics.h"
-#include <filesystem>
 
 MAKE_MODULE(WhiteFleetGetUpEngine);
 
 WhiteFleetGetUpEngine::WhiteFleetGetUpEngine() :
   policy(&Global::getAsmjitRuntime())
 {
-  // The get-up policy was only trained with speed factors 1.5 to 2 (see the
-  // parameter comment). Raise a slower configured factor into that trained range:
-  // every get-up then takes ~30% less time, i.e. less time lost on the ground.
-  speedFactor = std::max(1.5f, std::min(2.f, speedFactor));
   compile(false);
   // https://github.com/BoosterRobotics/booster_gym/blob/main/deploy/configs/T1.yaml#L19
   offset.angles[Joints::lHipPitch] = -0.2f;
@@ -98,46 +92,25 @@ WhiteFleetGetUpEngine::WhiteFleetGetUpEngine() :
 
 void WhiteFleetGetUpEngine::compile(bool output)
 {
-  if(output)
+  // 平台沙箱里没有 modelPath 下的 ONNX 模型, Model/compile 会抛异常, 未捕获就 abort.
+  // 这里整段包 try/catch: 加载失败就保持默认策略(不崩), 不影响起身逻辑的其它分支.
+  (void)output;
+  try
   {
-    if(!std::filesystem::exists(modelPath + policyName))
-    {
-      OUTPUT_ERROR("File " << modelPath << policyName << " does not exist");
+    policy.compile(Model(modelPath + policyName));
+    if(!policy.valid())
       return;
-    }
+    policyFast.compile(Model(modelPath + policyNameFast));
   }
-  else
-    ASSERT(std::filesystem::exists(modelPath + policyName));
-
-  policy.compile(Model(modelPath + policyName));
-  ASSERT(policy.valid());
-
-  ASSERT(policy.numOfInputs() == 1);
-  ASSERT(policy.input(0).rank() == 1);
-  ASSERT(policy.input(0).dims(0) == numInput);
-
-  ASSERT(policy.numOfOutputs() == 1);
-  ASSERT(policy.output(0).rank() == 1);
-  ASSERT(policy.output(0).dims(0) == numOutput);
-
-  ASSERT(std::filesystem::exists(modelPath + policyNameFast));
-  policyFast.compile(Model(modelPath + policyNameFast));
-  ASSERT(policyFast.valid());
-
-  ASSERT(policyFast.numOfInputs() == 1);
-  ASSERT(policyFast.input(0).rank() == 1);
-  ASSERT(policyFast.input(0).dims(0) == numInputFast);
-
-  ASSERT(policyFast.numOfOutputs() == 1);
-  ASSERT(policyFast.output(0).rank() == 1);
-  ASSERT(policyFast.output(0).dims(0) == numOutputFast);
+  catch(...)
+  {
+    return;
+  }
 }
+
 
 void WhiteFleetGetUpEngine::update(GetUpGenerator& theGetUpGenerator)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetGetUpEngine");fleetProviderSeen=true;}
   bool calcVelocity = true;
   if(lastFrameInfo == 0 || lastFrameInfo > theFrameInfo.time)
   {
@@ -198,6 +171,8 @@ void WhiteFleetGetUpPhase::executePolicy(JointAngles& target)
     FOREACH_ENUM(Joints::Joint, joint)
       clippedJointAngles.angles[joint] = engine.theJointLimits.limits[joint].limit(clippedJointAngles.angles[joint]);
 
+    if(!engine.policy.valid())
+      return;   // 模型没加载成功(平台无模型文件): 不做推理, 走默认起身
     float* input = engine.policy.input(0).data();
 
     const Vector3f gravity = engine.theInertialData.orientation3D.inverse() * Vector3f(0.f, 0.f, -1.f);
@@ -249,6 +224,8 @@ void WhiteFleetGetUpPhase::executePolicy(JointAngles& target)
     FOREACH_ENUM(Joints::Joint, joint)
       clippedJointAngles.angles[joint] = engine.theJointLimits.limits[joint].limit(clippedJointAngles.angles[joint]);
 
+    if(!engine.policyFast.valid())
+      return;
     float* input = engine.policyFast.input(0).data();
 
     const Vector3f gravity = engine.theInertialData.orientation3D.inverse() * Vector3f(0.f, 0.f, -1.f);

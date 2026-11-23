@@ -1,7 +1,7 @@
 /**
- * @file PlayDead.cpp
+ * @file WhiteFleetPlayDead.cpp
  *
- * This file implements the PlayDead skill.
+ * This file implements the WhiteFleetPlayDead skill.
  *
  * @author Arne Hasselbring
  */

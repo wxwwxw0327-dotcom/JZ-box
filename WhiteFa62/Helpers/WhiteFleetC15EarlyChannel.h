@@ -69,7 +69,7 @@ namespace WhiteFleetC15EarlyChannel
     float preferredMinX=6650.f,preferredMaxX=7250.f,preferredMinY=-1300.f,preferredMaxY=-800.f;
     bool lowerChannel=false,lowerLocked=false,lowerPassed=false,lowerDefenderKnown=false;
     Obstacle lowerDefender{}; // Assigned native local observation, never a fabricated global identity.
-    WhiteFleetKickoffThroughV8::Field field{};WhiteFleetKickoffThroughV8::Params params{};
+    KickoffThroughV8::Field field{};KickoffThroughV8::Params params{};
     Point contract{};
     std::vector<Obstacle> obstacles;
   };
@@ -153,8 +153,8 @@ namespace WhiteFleetC15EarlyChannel
       if(std::strcmp(why,"event_budget")==0)++p.budgetRejected;
       if(std::strcmp(why,"lower_side_required")==0)++p.lowerRejected;
       return p;};
-    if(!p.size||p.size>3||!inside(i.robot,i)||i.now<i.event||!WhiteFleetKickoffThroughV8::paramsValid(i.params)
-       ||!WhiteFleetKickoffThroughV8::fieldValid(i.field))return reject("invalid_parameters");
+    if(!p.size||p.size>3||!inside(i.robot,i)||i.now<i.event||!KickoffThroughV8::paramsValid(i.params)
+       ||!KickoffThroughV8::fieldValid(i.field))return reject("invalid_parameters");
     const float cap=std::min(i.maxForward*i.params.receiverSpeedFactor,i.params.empiricalReceiverSpeed);
     const float sideCap=std::min(i.maxSide*i.params.receiverSpeedFactor,900.f);
     if(!std::isfinite(cap)||cap<=0.f||!std::isfinite(sideCap)||sideCap<=0.f
@@ -254,7 +254,7 @@ namespace WhiteFleetC15EarlyChannel
     {
       if(!o.local||!o.opponent||!o.identifiedOpponent||!o.seen||o.seen>i.now||i.now-o.seen>250u
          ||o.center.x<=i.robot.x||o.center.x>=ball.x||i.ball.y<=o.center.y||ball.y<=o.center.y)continue;
-      if(WhiteFleetKickoffThroughV8::pointSegmentDistance(o.center,i.robot,body)>o.radius+o.uncertainty+300.f)continue;
+      if(KickoffThroughV8::pointSegmentDistance(o.center,i.robot,body)>o.radius+o.uncertainty+300.f)continue;
       if(o.center.x<first){first=o.center.x;found=&o;}
     }
     if(!found)return false;selected=*found;return true;
@@ -316,7 +316,7 @@ namespace WhiteFleetC15EarlyChannel
         const float at=travel(std::max(0.f,initial),i.estimatedSpeed,i);
         const Point center=o.velocityKnown?add(o.center,mul(o.velocity,std::min(at,1.f))):o.center;
         const float a=sub(center,i.robot).x*u.x+sub(center,i.robot).y*u.y;
-        const float clearance=WhiteFleetKickoffThroughV8::pointSegmentDistance(center,i.robot,body)-o.radius;
+        const float clearance=KickoffThroughV8::pointSegmentDistance(center,i.robot,body)-o.radius;
         const bool hard=o.local&&clearance<0.f;
         if(a<=0.f||a>=length||(hardBlock&&!hard)||((hard==hardBlock)&&a>=earliest))continue;
         if(clearance<o.uncertainty+300.f){blocker=&o;earliest=a;hardBlock=hard;}
@@ -420,7 +420,7 @@ namespace WhiteFleetC15EarlyChannel
     const auto stop=[&](const char* why){out.kind=Kind::wait;out.target={};out.reason=s.reason=why;return out;};
     if(!i.localStep||i.shortest||i.lowerChannel)return stop("fixed_profile_conflict");
     const Point body=releasedRun?s.fixedReferenceBody:Point{i.fixedBall.x-650.f,i.fixedBall.y};
-    if(!WhiteFleetKickoffThroughV8::paramsValid(i.params)||!WhiteFleetKickoffThroughV8::fieldValid(i.field)
+    if(!KickoffThroughV8::paramsValid(i.params)||!KickoffThroughV8::fieldValid(i.field)
        ||!inside(i.fixedBall,i)||!inside(body,i)||!legal(body)||!finite(i.contract)
        ||distance(i.fixedBall,i.contract)>1500.f)return stop("fixed_reference_invalid");
     if(s.fixedReferenceKnown&&(distance(i.fixedBall,s.fixedReferenceBall)>1.f
@@ -469,7 +469,7 @@ namespace WhiteFleetC15EarlyChannel
     out.plan.clearance=1e9f;
     for(const auto& o:i.obstacles)if(o.local)
     {
-      const float clear=WhiteFleetKickoffThroughV8::pointSegmentDistance(o.center,i.robot,target)-o.radius;
+      const float clear=KickoffThroughV8::pointSegmentDistance(o.center,i.robot,target)-o.radius;
       out.plan.clearance=std::min(out.plan.clearance,clear);
       if(clear< -1.f)return stop("fixed_current_line_occupied");
       if(o.velocityKnown)for(unsigned k=0;k<=5;++k)
