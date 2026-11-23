@@ -9,7 +9,7 @@
  * geometry/ETA/opponent gates run BEFORE scoring; missing ratings reject. */
 namespace WhiteFleetC9PassPlaybook
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   struct Ratings {float pass=0.f,goal=0.f;};
   inline bool ratingsValid(Ratings r)
   {return std::isfinite(r.pass)&&std::isfinite(r.goal)&&r.pass>=.5f&&r.pass<=1.f&&r.goal>=0.f&&r.goal<=1.f;}

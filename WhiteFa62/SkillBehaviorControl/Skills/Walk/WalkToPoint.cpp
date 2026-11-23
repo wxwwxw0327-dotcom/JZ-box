@@ -1,7 +1,7 @@
 /**
- * @file WalkToPoint.cpp
+ * @file WhiteFleetWalkToPoint.cpp
  *
- * This file implements an implementation for the WalkToPoint skill.
+ * This file implements an implementation for the WhiteFleetWalkToPoint skill.
  *
  * @author Arne Hasselbring (the actual behavior is older)
  */

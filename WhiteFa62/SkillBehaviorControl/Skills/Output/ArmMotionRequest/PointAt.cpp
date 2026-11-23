@@ -1,7 +1,7 @@
 /**
- * @file PointAt.cpp
+ * @file WhiteFleetPointAt.cpp
  *
- * This file implements the PointAt skill.
+ * This file implements the WhiteFleetPointAt skill.
  *
  * @author Arne Hasselbring
  */

@@ -38,7 +38,7 @@
 
 using namespace NeuralNetworkONNX;
 
-STREAMABLE(WhiteFleetArmParameters,
+STREAMABLE(ArmParameters,
 {,
   (Angle) armShoulderRoll, /**< Arm shoulder angle in radians. */
   (float) armShoulderRollIncreaseFactor, /**< Factor between sideways step size (in m) and additional arm roll angles. */
@@ -49,22 +49,22 @@ STREAMABLE(WhiteFleetArmParameters,
   (Angle) standInterpolationVelocity, /**< The interpolation speed to interpolate to stand (in degree/s). */
 });
 
-STREAMABLE(WhiteFleetWalkTargetScaling,
+STREAMABLE(WalkTargetScaling,
 {,
   (Rangef) targetDistance,
   (Rangef) walkSpeed,
 });
 
-STREAMABLE(WhiteFleetCommonSpeedParameters,
+STREAMABLE(CommonSpeedParameters,
 {,
   (Vector2f) maxAcceleration,  /**< Maximum acceleration of forward and sideways speed at each leg change to ratchet up/down in (mm/s/step). */
   (Vector2f) maxDeceleration, /**< (Positive) maximum deceleration of forward and sideways speed at each leg change to ratchet up/down in (mm/s/step). */
-  (WhiteFleetWalkTargetScaling) xTargetScaling,
-  (WhiteFleetWalkTargetScaling) yTargetScaling,
-  (WhiteFleetWalkTargetScaling) rotationTargetScaling,
+  (WalkTargetScaling) xTargetScaling,
+  (WalkTargetScaling) yTargetScaling,
+  (WalkTargetScaling) rotationTargetScaling,
 });
 
-STREAMABLE(WhiteFleetStepSizeParameters,
+STREAMABLE(StepSizeParameters,
 {,
   (Vector2a) reduceTranslationFromRotationBaseOffset, /**< The rotation from which the translation per step will **start** to be reduced. */
   (Vector2a) noTranslationFromRotationThreshold, /**< The **final** rotation from which no translation is possible at all. */
@@ -75,29 +75,29 @@ STREAMABLE(WhiteFleetStepSizeParameters,
   (Rangef) minXBackwardTranslationFastRange,/**< The backward step size has a minimum for the fast translation polygon. */
 });
 
-STREAMABLE(WhiteFleetTranslationPolygonParameters,
+STREAMABLE(TranslationPolygonParameters,
 {,
   (Pose2f) maxSpeed, /**< Maximum speeds in mm/s and degrees/s. */
   (float) maxSpeedBackwards, /**< Maximum backwards speed. Positive, in mm/s. */
 });
 
-STREAMABLE(WhiteFleetConfiguredParameters,
+STREAMABLE(ConfiguredParameters,
 {,
-  (WhiteFleetTranslationPolygonParameters) fastWalkSpeed, /**< Walk speed for normal usage in mm/s and degree/s. */
-  (WhiteFleetTranslationPolygonParameters) normalWalkSpeed, /**< Walk speed for normal usage in mm/s and degree/s. */
-  (WhiteFleetTranslationPolygonParameters) slowWalkSpeed, /**< Slow walk speeds in mm/s and degrees/s for everything that does not need to be fast. */
-  (WhiteFleetTranslationPolygonParameters) maxPossibleSpeed, /**< The maximum speeds to extreme situations, like intercepting. */
+  (TranslationPolygonParameters) fastWalkSpeed, /**< Walk speed for normal usage in mm/s and degree/s. */
+  (TranslationPolygonParameters) normalWalkSpeed, /**< Walk speed for normal usage in mm/s and degree/s. */
+  (TranslationPolygonParameters) slowWalkSpeed, /**< Slow walk speeds in mm/s and degrees/s for everything that does not need to be fast. */
+  (TranslationPolygonParameters) maxPossibleSpeed, /**< The maximum speeds to extreme situations, like intercepting. */
   (float) maxSideAtMaxForward, /**< Maximum allowed side speed at max forward speed (in mm/s). */
   (float) maxForwardAtMaxSide, /**< Maximum allowed forward speed at max side speed (in mm/s). */
 });
 
-STREAMABLE(WhiteFleetFrequencyParameters,
+STREAMABLE(FrequencyParameters,
 {,
   (float) base, /**< Base frequency. */
   (Rangef) clipRange, /**< Clip frequency offset from neuronal network. */
 });
 
-STREAMABLE(WhiteFleetBallNetworkParameters,
+STREAMABLE(BallNetworkParameters,
 {,
   (bool) active,
   (unsigned) numInput, /**< Neural Network input size. */
@@ -108,7 +108,7 @@ STREAMABLE(WhiteFleetBallNetworkParameters,
   (std::string) kickModel,
 });
 
-STREAMABLE(WhiteFleetWalkNeuronalNetworkParameters,
+STREAMABLE(WalkNeuronalNetworkParameters,
 {,
   (std::string) modelName, /** Neural Network name. Must be .onnx or .hdf5. */
   (float) velocityFactor, /**< Factor for the joint velocities. */
@@ -148,15 +148,15 @@ MODULE(WhiteFleetWalkingEngine,
   PROVIDES(WalkingEngineOutput),
   LOADS_PARAMETERS(
   {,
-    (WhiteFleetConfiguredParameters) configuredParameters, /**< Speed parameters */
-    (WhiteFleetStepSizeParameters) stepSizeParameters, /**< Step size parameters. */
-    (WhiteFleetCommonSpeedParameters) commonSpeedParameters, /**< Acceleration parameters. */
-    (WhiteFleetArmParameters) armParameters, /**< Arm parameters. */
-    (WhiteFleetWalkNeuronalNetworkParameters) walkNeuronalNetworkParameters, /**< Parameters of the walk neuronal network. */
-    (WhiteFleetFrequencyParameters) frequencyParametersWalk, /**< Frequency parameters. */
-    (WhiteFleetFrequencyParameters) frequencyParametersKick, /**< Frequency parameters. */
-    (WhiteFleetBallNetworkParameters) ballNetworkParameters, /**< Ball parameters for the network. */
-    (WhiteFleetBallNetworkParameters) oldBallNetworkParameters, /**< Ball parameters for the network. */
+    (ConfiguredParameters) configuredParameters, /**< Speed parameters */
+    (StepSizeParameters) stepSizeParameters, /**< Step size parameters. */
+    (CommonSpeedParameters) commonSpeedParameters, /**< Acceleration parameters. */
+    (ArmParameters) armParameters, /**< Arm parameters. */
+    (WalkNeuronalNetworkParameters) walkNeuronalNetworkParameters, /**< Parameters of the walk neuronal network. */
+    (FrequencyParameters) frequencyParametersWalk, /**< Frequency parameters. */
+    (FrequencyParameters) frequencyParametersKick, /**< Frequency parameters. */
+    (BallNetworkParameters) ballNetworkParameters, /**< Ball parameters for the network. */
+    (BallNetworkParameters) oldBallNetworkParameters, /**< Ball parameters for the network. */
     (Rangei) standAnkleStiffness,
     (float) ballDistancePolicySwitch,
     (float) ballHysteresisPolicySwitch,
@@ -181,13 +181,6 @@ public:
   CompiledNN oldKickPolicy; /**< The compiled neural network for kicking. */
   JointAngles offset;
   unsigned int lastFrameInfo = 0;
-  // MDFZ: 开球后 20 秒冲刺窗口. 从上一次开球状态切换到 playing 起算, 窗口内把
-  // 允许的步长包络整体放大 mdfzBurstBoost 倍(前后 x 与左右 y 同时放大).
-  unsigned int mdfzBurstStart = 0;
-  GameState::State mdfzPrevState = GameState::beforeHalf;
-  bool mdfzBurst = false;
-  float mdfzBurstBoost = 1.15f;
-  unsigned int mdfzBurstWindow = 20000u;
   std::vector<Joints::Joint> boosterJoints;
   std::vector<Joints::Joint> boosterWaistJoints;
 
@@ -224,7 +217,7 @@ private:
   const std::string modelPath = std::string(File::getBHDir()) + "/Config/NeuralNets/Walk/";
 };
 
-struct WhiteFleetDummyPhase : MotionPhase
+struct DummyPhase : MotionPhase
 {
   using MotionPhase::MotionPhase;
 

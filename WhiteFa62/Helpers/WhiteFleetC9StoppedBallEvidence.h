@@ -1,7 +1,7 @@
 #pragma once
 #include "WhiteFleetKickoffThroughV8Math.h"
 
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   /** A zero native velocity is only a candidate, not a stationary witness.
    * Count distinct own observations in their ORIGINAL time base. Never count

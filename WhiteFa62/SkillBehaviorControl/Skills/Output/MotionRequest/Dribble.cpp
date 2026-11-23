@@ -1,7 +1,7 @@
 /**
- * @file Dribble.cpp
+ * @file WhiteFleetDribble.cpp
  *
- * This file implements the Dribble skill.
+ * This file implements the WhiteFleetDribble skill.
  *
  * @author Arne Hasselbring
  */

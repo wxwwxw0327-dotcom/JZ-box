@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 /** Process-wide, one-way fence for the explicitly authorized damping-only app. */
 #pragma once
 
@@ -33,7 +32,8 @@ namespace WhiteFleetBoosterAppCommissioning
       // executable, not independently loaded DSOs. An external-linkage inline
       // function's local static is one ODR entity across translation units.
       // Do not make this function TU-local or copy this state into a DSO.
-      return WhiteFleetSimContext::storage<State,101>();
+      static State value;
+      return value;
     }
   }
 

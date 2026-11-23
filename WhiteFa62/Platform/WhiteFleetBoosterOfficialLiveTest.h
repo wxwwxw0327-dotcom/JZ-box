@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 /** Explicit Live-test stop and fresh-physical-F1 authorization overlay. */
 #pragma once
 
@@ -36,7 +35,8 @@ namespace WhiteFleetBoosterOfficialLiveTest
     inline LiveState& liveStateStorage()
     {
       // The current Platform/B-Human OBJECT libraries link into one Booster ELF.
-      return WhiteFleetSimContext::storage<LiveState,104>();
+      static LiveState value;
+      return value;
     }
   }
 

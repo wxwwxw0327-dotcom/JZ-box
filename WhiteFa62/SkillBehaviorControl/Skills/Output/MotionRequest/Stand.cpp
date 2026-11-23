@@ -1,7 +1,7 @@
 /**
- * @file Stand.cpp
+ * @file WhiteFleetStand.cpp
  *
- * This file implements the Stand skill.
+ * This file implements the WhiteFleetStand skill.
  *
  * @author Arne Hasselbring
  */

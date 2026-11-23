@@ -1,7 +1,7 @@
 #pragma once
 #include "WhiteFleetC9CaptureMotionEvidence.h"
 
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   /** One bounded sender-foot aim, not a replacement RobotPose or ball model.
    * Lock the already admitted FIELD endpoint in ODOM using a qualified entry

@@ -29,7 +29,7 @@ namespace WhiteFleetC15EarlyChannel
       if(std::strcmp(why,"occupied_first_step")==0)++p.occupiedRejected;
       if(std::strcmp(why,"illegal_native_path")==0)++p.illegalRejected;
       if(std::strcmp(why,"first_step_budget")==0)++p.budgetRejected;return p;};
-    if(!WhiteFleetKickoffThroughV8::paramsValid(i.params)||!WhiteFleetKickoffThroughV8::fieldValid(i.field)
+    if(!KickoffThroughV8::paramsValid(i.params)||!KickoffThroughV8::fieldValid(i.field)
        ||!p.size||p.size>1||!inside(p.points[0],i)||!legal(p.points[0]))return reject("illegal_native_path");
     if(!route.valid||!std::isfinite(route.length)||route.length<=1.f||route.samples.size()<2
        ||!std::isfinite(route.arcTurn)||!std::isfinite(route.initialTurn)||distance(route.samples.front(),i.robot)>1.f

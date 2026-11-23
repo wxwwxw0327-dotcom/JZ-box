@@ -6,10 +6,7 @@
  * @author Arne Hasselbring
  */
 
-#include "WhiteFleetBackfieldOutlet.h"
-#include <cstdio>
 #include "WhiteFleetSkillBehaviorControl.h"
-#include "WhiteFleetSimPhysical.h"
 #include "WhiteFleetMatchTacticalRepair.h"
 #include "WhiteFleetAutonomousKickoff.h"
 
@@ -21,7 +18,7 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
 {
   const auto activateDuel = [&]
   {
-    if(theSkillRequest.mdfzRule || theSkillRequest.restartPassRequired ||
+    if(theSkillRequest.restartPassRequired ||
        (theSkillRequest.backfieldStrongOutlet&&theSkillRequest.skill==SkillRequest::pass) ||
        ((theGameState.isKickOff() || theGameState.isFreeKick()) && theGameState.isForOwnTeam()))
       return false;
@@ -84,31 +81,6 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
   const bool tactical=WhiteFleetMatchTacticalRepair::enabled(theBehaviorParameters.matchTacticalRepair);
   const Vector2f usedGoalPost(std::min(theFieldDimensions.xPosOwnGoalPost, theFieldBall.positionOnField.x() - theFieldDimensions.goalPostRadius), isLeft ? theFieldDimensions.yPosLeftGoal : theFieldDimensions.yPosRightGoal);
 
-  const auto backfield = [&](Angle& relDirection,float& length) -> bool
-  {
-    using namespace WhiteFleetBackfieldOutlet;
-    const int v=variant();
-    if(v==off||theGameState.isKickOff()||theGameState.isFreeKick()||theGameState.isPenaltyKick()||
-       theGameState.isGoalkeeper()||!theFieldBall.ballWasSeen(300)||!theRobotPose.isFinite())return false;
-    Input in;in.ball=theFieldBall.positionOnField;in.robot=theRobotPose.translation;in.halfWidth=theFieldDimensions.yPosLeftTouchline;
-    for(const auto& o:theGlobalOpponentsModel.opponents)if(o.position.allFinite())in.opponents.push_back(o.position);
-    for(const auto& o:theObstacleModel.obstacles)if(o.isOpponent()&&o.center.allFinite())in.opponents.push_back(theRobotPose*o.center);
-    for(const Teammate& t:theTeamData.teammates)
-      if(t.number==3&&t.number!=theGameState.playerNumber&&theFrameInfo.getTimeSince(t.theFrameInfo.time)<1200&&t.theRobotPose.isFinite())
-      {in.frontKnown=true;in.front=t.theRobotPose.translation;}
-    if(!active(in))return false;
-    const float dir=direction(in,v,length);
-    relDirection=Angle::normalize(dir-theRobotPose.rotation);
-    static unsigned lastLog=0;
-    if(SystemCall::getMode()==SystemCall::simulatedRobot&&theFrameInfo.getTimeSince(lastLog)>=1000)
-    {
-      lastLog=theFrameInfo.time;
-      std::printf("BACKFIELD_OUTLET self=%d v=%d ball=%.0f,%.0f dir_deg=%.0f len=%.0f opp_mm=%.0f front=%d\n",theGameState.playerNumber,v,
-        in.ball.x(),in.ball.y(),dir*57.29578f,length,nearestOpponent(in),int(in.frontKnown));
-    }
-    return true;
-  };
-
   initial_state(executeSkillRequest)
   {
     transition
@@ -117,17 +89,11 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
         goto kickOff;
       else if(!theGameState.isFreeKick() && (theFieldBall.positionOnField - usedGoalPost).squaredNorm() < sqr(goalPostHandlingAreaRadius))
         goto atOwnGoalPost;
-      {Angle d=0_deg;float l=0.f;
-       if(activateDuel()&&!backfield(d,l)) // a back-field outlet (tested variant) takes precedence over the duel
-         goto zweikampf;}
+      if(activateDuel())
+        goto zweikampf;
     }
     action
     {
-      Angle backfieldDirection=0_deg;float backfieldLength=0.f;
-      if(!theSkillRequest.mdfzRule&&backfield(backfieldDirection,backfieldLength))
-        GoToBallAndKick({.targetDirection=backfieldDirection,.kickType=KickInfo::rlKickStrong,
-          .alignPrecisely=KickPrecision::justHitTheBall,.length=backfieldLength});
-      else
       switch(theSkillRequest.skill)
       {
         case SkillRequest::pass:
@@ -137,14 +103,7 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
           GoToBallAndDribble({.targetDirection = Angle::normalize(theSkillRequest.target.rotation - theRobotPose.rotation)});
           break;
         case SkillRequest::clear:
-          if(theSkillRequest.mdfzRule)
-          {
-            const Vector2f b=theFieldBall.positionOnField;
-            const Vector2f t(std::min(b.x()+8000.f,theFieldDimensions.xPosOpponentPenaltyMark),b.y()*.5f);
-            GoToBallAndKick({.targetDirection=Angle::normalize((t-b).angle()-theRobotPose.rotation),
-              .kickType=KickInfo::rlKickStrong,.length=std::min(8000.f,std::max(3000.f,(t-b).norm()))});
-          }
-          else if(tactical && theGameState.isGoalkeeper() && theGameState.isGoalKick() && theGameState.isForOwnTeam())
+          if(tactical && theGameState.isGoalkeeper() && theGameState.isGoalKick() && theGameState.isForOwnTeam())
           {
             theClearTarget.update();
             if(theClearTarget.isValid && theFieldBall.ballWasSeen(200) &&
@@ -194,12 +153,10 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
   {
     transition
     {
-      // MDFZ v32: 自己罚任意球时不许进"守门柱"状态, 否则球就在脚边也不去罚
-      if(!theGameState.isFreeKick() && (theFieldBall.positionOnField - usedGoalPost).squaredNorm() < sqr(goalPostHandlingAreaRadius))
+      if((theFieldBall.positionOnField - usedGoalPost).squaredNorm() < sqr(goalPostHandlingAreaRadius))
         goto atOwnGoalPost;
-      {Angle d=0_deg;float l=0.f;
-       if(theSkillRequest.mdfzRule||stopDuel()||backfield(d,l))
-         goto executeSkillRequest;}
+      if(stopDuel())
+        goto executeSkillRequest;
     }
     action
     {
@@ -216,17 +173,18 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
     }
     action
     {
-      if(WhiteFleetAutonomousKickoff::enabled(WhiteFleetSimPhysical::physical(),
-           WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),WhiteFleetSimPhysical::simulated(),
-           Global::getSettings().teamNumber,std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE"))
+      if(WhiteFleetAutonomousKickoff::enabled(SystemCall::getMode()==SystemCall::physicalRobot,
+           WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),SystemCall::getMode()==SystemCall::simulatedRobot,
+           Global::getSettings().teamNumber,nullptr)
          &&theGameState.state==GameState::ownKickOff&&theGameState.isForOwnTeam())
         DirectKickOff();
-      // MDFZ 开球: 默认直接大力往前踢 (老版行为). 只有战略明确要求"传向前场队友"时才传.
-      // 平台新基座去掉了 tactical 闸门, 变成"清一色传给最近的队友", 开球等于回传自家半场.
-      else if(theGameState.isForOwnTeam() && theSkillRequest.skill==SkillRequest::pass &&
-              theSkillRequest.passTarget>0 && theSkillRequest.target.translation.allFinite() &&
-              theSkillRequest.target.translation.x()>0.f)
-        PassToTeammate({.playerNumber=theSkillRequest.passTarget});
+      else if(tactical && theGameState.isForOwnTeam())
+      {
+        if(theSkillRequest.skill==SkillRequest::pass && theSkillRequest.passTarget>0 &&
+           theSkillRequest.target.translation.allFinite() && theSkillRequest.target.translation.x()>0.f)
+          PassToTeammate({.playerNumber=theSkillRequest.passTarget});
+        else {LookActive({.withBall=true});Stand();}
+      }
       else DirectKickOff();
     }
   }

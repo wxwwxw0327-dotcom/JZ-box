@@ -11,7 +11,7 @@
  */
 namespace WhiteFleetC15RollingRendezvous
 {
-  namespace K=WhiteFleetKickoffThroughV8;
+  namespace K=KickoffThroughV8;
   constexpr float wireTolerance=300.f,temporalMargin=.10f,maxControlHorizon=2.25f;
   constexpr float calibratedSpeed=1500.f; // Old7 cases: body peak<=1149mm/s over120ms; explicit +30% margin.
   constexpr float calibratedNormalLimit=3400.f; // Frozen existing normal model/config, not a changed actuator limit.

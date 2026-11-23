@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 #pragma once
 
 #include <atomic>
@@ -15,11 +14,11 @@ namespace WhiteFleetK1HotChase
   namespace detail
   {
     inline std::atomic<bool>& storage() noexcept
-    { return WhiteFleetSimContext::storage<std::atomic<bool>,107>(); }
+    { static std::atomic<bool> value{false}; return value; }
     inline std::atomic<bool>& reacquireStorage() noexcept
-    { return WhiteFleetSimContext::storage<std::atomic<bool>,108>(); }
+    { static std::atomic<bool> value{false}; return value; }
     inline std::atomic<bool>& logReacquireStorage() noexcept
-    { return WhiteFleetSimContext::storage<std::atomic<bool>,109>(); }
+    { static std::atomic<bool> value{false}; return value; }
   }
   inline void enable() noexcept {detail::storage().store(true, std::memory_order_release);}
   inline bool enabled() noexcept {return detail::storage().load(std::memory_order_acquire);}

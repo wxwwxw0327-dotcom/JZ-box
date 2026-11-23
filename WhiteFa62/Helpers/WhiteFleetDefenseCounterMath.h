@@ -4,7 +4,7 @@
 
 namespace WhiteFleetDefenseCounterMath
 {
-  inline bool active(bool flag,bool simulated,int team) { return flag&&simulated&&(team==5||team==70); }
+  inline bool active(bool flag,bool simulated,int team) { static_cast<void>(team); return flag&&simulated; } // any team
   struct Point { float x, y; };
   inline float distance(Point a, Point b) { return std::hypot(a.x-b.x,a.y-b.y); }
   inline bool finite(Point p) { return std::isfinite(p.x)&&std::isfinite(p.y); }

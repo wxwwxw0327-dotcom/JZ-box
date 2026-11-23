@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /*
  * @file WhiteFleetRestrictiveFallEngine.cpp
  *
@@ -19,9 +18,6 @@ MAKE_MODULE(WhiteFleetRestrictiveFallEngine);
 
 void WhiteFleetRestrictiveFallEngine::update(FallGenerator& fallGenerator)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetRestrictiveFallEngine");fleetProviderSeen=true;}
   fallGenerator.shouldCatchFall = [this](const MotionRequest& motionRequest)
   {
     const bool normalFallStart = theFallDownState.state == FallDownState::falling &&

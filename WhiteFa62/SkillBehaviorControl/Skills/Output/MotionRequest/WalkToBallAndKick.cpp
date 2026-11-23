@@ -1,7 +1,7 @@
 /**
- * @file WalkToBallAndKick.cpp
+ * @file WhiteFleetWalkToBallAndKick.cpp
  *
- * This file implements the WalkToBallAndKick skill.
+ * This file implements the WhiteFleetWalkToBallAndKick skill.
  *
  * @author Arne Hasselbring
  */

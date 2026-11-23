@@ -1,7 +1,7 @@
 /**
- * @file DemoSoccer.cpp
+ * @file WhiteFleetDemoSoccer.cpp
  *
- * This file implements the DemoSoccer skill.
+ * This file implements the WhiteFleetDemoSoccer skill.
  *
  * @author Philip Reichenberg et al.
  */

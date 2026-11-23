@@ -1,4 +1,3 @@
-#include "WhiteFleetSimContext.h"
 #pragma once
 #include <atomic>
 #include <cmath>
@@ -9,7 +8,7 @@ namespace WhiteFleetOpponentGoalKickGuard
   namespace detail
   {
     struct Shared {std::atomic<bool> enabled{false}, held{false};};
-    inline Shared& shared() noexcept {return WhiteFleetSimContext::storage<Shared,111>();}
+    inline Shared& shared() noexcept {static Shared value;return value;}
   }
   inline void enable() noexcept {detail::shared().enabled.store(true);}
   inline bool enabled() noexcept {return detail::shared().enabled.load();}

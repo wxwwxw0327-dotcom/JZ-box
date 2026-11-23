@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetIllegalAreaProvider.cpp
  *
@@ -17,9 +16,6 @@ MAKE_MODULE(WhiteFleetIllegalAreaProvider);
 
 void WhiteFleetIllegalAreaProvider::update(IllegalAreas& illegalAreas)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetIllegalAreaProvider");fleetProviderSeen=true;}
   DECLARE_DEBUG_DRAWING("module:WhiteFleetIllegalAreaProvider:illegalAreas", "drawingOnField");
 
   illegalAreas.illegal = 0u;

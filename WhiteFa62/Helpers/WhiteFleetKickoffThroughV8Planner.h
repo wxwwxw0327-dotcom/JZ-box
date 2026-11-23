@@ -9,7 +9,7 @@
 #include "Tools/Modeling/BallPhysics.h"
 #include "Tools/Motion/KickLengthConverter.h"
 
-namespace WhiteFleetKickoffThroughV8
+namespace KickoffThroughV8
 {
   inline BallSpecification predictionBall(const Params& p,const BallSpecification& actual)
   {

@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetKickAtGoalEvaluationProvider.cpp
  *
@@ -23,9 +22,6 @@ WhiteFleetKickAtGoalEvaluationProvider::WhiteFleetKickAtGoalEvaluationProvider()
 
 void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKickAtGoalEvaluation)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetKickAtGoalEvaluationProvider");fleetProviderSeen=true;}
   wasValidLastFrame = theKickAtGoalEvaluation.kickInfo.isValid;
   theKickAtGoalEvaluation.kickInfo.isValid = false;
 
@@ -105,7 +101,7 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
       ASSERT(std::abs(angleToRightPost) <= pi_2);
 
       // Helper function
-      const auto addObstacle = [&](std::vector<ObstacleSector>& obstacleSectors, const Obstacle& obstacle)
+      const auto addObstacle = [&](std::vector<WhiteFleetObstacleSector>& obstacleSectors, const Obstacle& obstacle)
       {
         const Vector2f obstacleOnField = theRobotPose * obstacle.center;
         if(obstacleOnField.x() > (theFieldDimensions.xPosOpponentGoalLine + theFieldDimensions.xPosOpponentGoal) * 0.5f)
@@ -129,14 +125,14 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
       };
 
       // Prepare obstacle sectors.
-      std::vector<ObstacleSector> obstacleSectors;
+      std::vector<WhiteFleetObstacleSector> obstacleSectors;
 
       // Add obstacles we saw
       for(const Obstacle& obstacle : theObstacleModel.obstacles)
         addObstacle(obstacleSectors, obstacle);
 
       // Sort obstacles according to their absolute x coordinate (to ease culling later on).
-      std::sort(obstacleSectors.begin(), obstacleSectors.end(), [](const ObstacleSector& s1, const ObstacleSector& s2) { return s1.x < s2.x; });
+      std::sort(obstacleSectors.begin(), obstacleSectors.end(), [](const WhiteFleetObstacleSector& s1, const WhiteFleetObstacleSector& s2) { return s1.x < s2.x; });
 
       // Determine the x coordinate up to which obstacles may be culled.
       const float cullFactor = std::max(0.f, std::min(theFieldBall.positionOnField.x() / theFieldDimensions.xPosOpponentPenaltyMark, 1.f));
@@ -151,7 +147,7 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
       {
         wheel.begin(theFieldBall.positionOnField);
         wheel.addSector(Rangea(angleToRightPost, angleToLeftPost), std::numeric_limits<float>::max(), SectorWheel::Sector::goal);
-        for(const ObstacleSector& obstacleSector : obstacleSectors)
+        for(const WhiteFleetObstacleSector& obstacleSector : obstacleSectors)
           wheel.addSector(obstacleSector.sector, obstacleSector.distance, SectorWheel::Sector::obstacle);
         sectors = wheel.finish();
 

@@ -1,4 +1,3 @@
-#include "WhiteFleetSimEntry.h"
 /**
  * @file WhiteFleetMotionEngine.cpp
  *
@@ -48,9 +47,6 @@ WhiteFleetMotionEngine::WhiteFleetMotionEngine()
 
 void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
 {
-  WhiteFleetSimEntry::activate();
-  static thread_local bool fleetProviderSeen=false;
-  if(!fleetProviderSeen){WhiteFleetSimEntry::witness("WhiteFleetMotionEngine");fleetProviderSeen=true;}
   if(WhiteFleetBoosterAppCommissioning::enabled())
   {
     jointRequest.angles.fill(JointAngles::off);
@@ -105,7 +101,7 @@ void WhiteFleetMotionEngine::update(JointRequest& jointRequest)
       &&theFallDownState.state==FallDownState::upright&&!motionRequest.shouldInterceptBall&&!motionRequest.shouldWalkOutOfBallLine
       &&motionRequest.obstacleAvoidance.path.empty()&&motionRequest.obstacleAvoidance.avoidance.allFinite()
       &&motionRequest.obstacleAvoidance.avoidance.squaredNorm()<=1e-6f,
-      SystemCall::getMode()==SystemCall::simulatedRobot&&WhiteFleetSimContext::arenaTeam(Global::getSettings().teamNumber)&&Global::getSettings().playerNumber==2);
+      SystemCall::getMode()==SystemCall::simulatedRobot&&Global::getSettings().playerNumber==2);
   const auto fixedRunDrive=WhiteFleetC15FixedRunDrive::evaluate(fixedRunInput);
   if(fixedRunDrive.active&&!fixedRunDrive.valid&&motionRequest.isWalking())
   {

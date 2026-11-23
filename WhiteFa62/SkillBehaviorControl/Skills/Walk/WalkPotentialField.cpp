@@ -1,7 +1,7 @@
 /**
- * @file WalkPotentialField.cpp
+ * @file WhiteFleetWalkPotentialField.cpp
  *
- * This file implements an implementation for the WalkPotentialField skill.
+ * This file implements an implementation for the WhiteFleetWalkPotentialField skill.
  *
  * @author Andreas Stolpmann
  * @author Arne Hasselbring
@@ -297,22 +297,22 @@ option((WhiteFleetSkillBehaviorControl) WalkPotentialField,
   const auto draw = [&]
   {
     Vector2f target = Vector2f::Zero();
-    MODIFY("option:WalkPotentialField:target", target);
+    MODIFY("option:WhiteFleetWalkPotentialField:target", target);
 
-    COMPLEX_DRAWING("option:WalkPotentialField:angles")
+    COMPLEX_DRAWING("option:WhiteFleetWalkPotentialField:angles")
     {
       const Vector2f rp = theRobotPose.translation;
       const Vector2f t = theRobotPose.inverse() * target;
 
       const Vector2f end(rp + calculatePotentialField(rp, target).normalize(t.norm()));
-      ARROW("option:WalkPotentialField:angles", rp.x(), rp.y(), end.x(), end.y(), 6, Drawings::solidPen, ColorRGBA::yellow);
-      ARROW("option:WalkPotentialField:angles", rp.x(), rp.y(), target.x(), target.y(), 6, Drawings::solidPen, ColorRGBA::green);
+      ARROW("option:WhiteFleetWalkPotentialField:angles", rp.x(), rp.y(), end.x(), end.y(), 6, Drawings::solidPen, ColorRGBA::yellow);
+      ARROW("option:WhiteFleetWalkPotentialField:angles", rp.x(), rp.y(), target.x(), target.y(), 6, Drawings::solidPen, ColorRGBA::green);
       const Vector2f pt = getPotentialField(target);
       const float a = toDegrees(std::acos(std::abs(clip<float>((pt.dot(t)) / (pt.norm() * t.norm()), -1.0f, 1.0f))));
-      DRAW_TEXT("option:WalkPotentialField:angles", rp.x(), rp.y(), 200, ColorRGBA::white, a);
+      DRAW_TEXT("option:WhiteFleetWalkPotentialField:angles", rp.x(), rp.y(), 200, ColorRGBA::white, a);
     }
 
-    COMPLEX_DRAWING("option:WalkPotentialField:potentialField")
+    COMPLEX_DRAWING("option:WhiteFleetWalkPotentialField:potentialField")
     {
       for(float y = theFieldDimensions.yPosRightFieldBorder; y <= theFieldDimensions.yPosLeftFieldBorder; y += gridOffset)
       {
@@ -320,7 +320,7 @@ option((WhiteFleetSkillBehaviorControl) WalkPotentialField,
         {
           const Vector2f start(x, y);
           const Vector2f end(start + calculatePotentialField(start, target));
-          ARROW("option:WalkPotentialField:potentialField", start.x(), start.y(), end.x(), end.y(), arrowWidth, Drawings::solidPen, ColorRGBA::black);
+          ARROW("option:WhiteFleetWalkPotentialField:potentialField", start.x(), start.y(), end.x(), end.y(), arrowWidth, Drawings::solidPen, ColorRGBA::black);
         }
       }
     }

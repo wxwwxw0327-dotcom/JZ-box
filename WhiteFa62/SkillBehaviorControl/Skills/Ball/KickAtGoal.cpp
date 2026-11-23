@@ -1,7 +1,7 @@
 /**
- * @file KickAtGoal.cpp
+ * @file WhiteFleetKickAtGoal.cpp
  *
- * This file defines an implementation of the KickAtGoal skill.
+ * This file defines an implementation of the WhiteFleetKickAtGoal skill.
  *
  * @author Arne Hasselbring
  */
@@ -12,9 +12,9 @@
 #include "Debugging/DebugDrawings.h"
 #include <limits>
 
-namespace KickAtGoal
+namespace WhiteFleetKickAtGoal
 {
-  struct ObstacleSector
+  struct WhiteFleetObstacleSector
   {
     Rangea sector; /**< The angular range relative to the ball that the obstacle blocks. */
     float distance; /**< The distance of the obstacle to the ball. */
@@ -27,7 +27,7 @@ namespace KickAtGoal
     (Angle) minSectorWidth, /**< The minimal required sector width to allow this kick. */
   });
 }
-using namespace KickAtGoal;
+using namespace WhiteFleetKickAtGoal;
 
 option((WhiteFleetSkillBehaviorControl) KickAtGoal,
        vars((Angle)(0_deg) kickAngleInField,

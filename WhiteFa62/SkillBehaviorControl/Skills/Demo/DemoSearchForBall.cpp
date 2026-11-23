@@ -1,7 +1,7 @@
 /**
- * @file DemoSearchForBall.cpp
+ * @file WhiteFleetDemoSearchForBall.cpp
  *
- * This file implements the DemoSearchForBall skill.
+ * This file implements the WhiteFleetDemoSearchForBall skill.
  *
  * @author Philip Reichenberg
  */

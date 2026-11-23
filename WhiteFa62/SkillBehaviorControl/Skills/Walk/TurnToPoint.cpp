@@ -1,7 +1,7 @@
 /**
- * @file TurnToPoint.cpp
+ * @file WhiteFleetTurnToPoint.cpp
  *
- * This file implements the TurnToPoint skill.
+ * This file implements the WhiteFleetTurnToPoint skill.
  *
  * @author Nicole Schrader
  */

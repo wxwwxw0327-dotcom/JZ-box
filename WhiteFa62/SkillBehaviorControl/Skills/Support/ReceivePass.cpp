@@ -1,7 +1,7 @@
 /**
- * @file ReceivePass.cpp
+ * @file WhiteFleetReceivePass.cpp
  *
- * This file defines an implementation of the ReceivePass skill, that makes the player walk to the ball's target position that the kicking teammate has communicated.
+ * This file defines an implementation of the WhiteFleetReceivePass skill, that makes the player walk to the ball's target position that the kicking teammate has communicated.
  *
  * @author Jo Lienhoop
  */
@@ -67,10 +67,10 @@ option((WhiteFleetSkillBehaviorControl) ReceivePass, args((int) playerNumber),
                   .onlyOwnBall = false,
                   .slowdownFactor = 0.5f});
 
-      COMPLEX_DRAWING("option:ReceivePass:target")
+      COMPLEX_DRAWING("option:WhiteFleetReceivePass:target")
       {
-        CROSS("option:ReceivePass:target", passTarget.x(), passTarget.y(), 100, 20, Drawings::solidPen, ColorRGBA::blue);
-        LINE("option:ReceivePass:target", passBase.x(), passBase.y(), passTarget.x(), passTarget.y(), 20, Drawings::solidPen, ColorRGBA::blue);
+        CROSS("option:WhiteFleetReceivePass:target", passTarget.x(), passTarget.y(), 100, 20, Drawings::solidPen, ColorRGBA::blue);
+        LINE("option:WhiteFleetReceivePass:target", passBase.x(), passBase.y(), passTarget.x(), passTarget.y(), 20, Drawings::solidPen, ColorRGBA::blue);
       }
     }
   }
