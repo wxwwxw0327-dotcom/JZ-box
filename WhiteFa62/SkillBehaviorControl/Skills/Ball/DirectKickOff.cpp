@@ -7,6 +7,7 @@
  */
 
 #include "WhiteFleetSkillBehaviorControl.h"
+#include "WhiteFleetSimPhysical.h"
 #include "Tools/BehaviorControl/SectorWheel.h"
 #include "Debugging/DebugDrawings.h"
 #include "WhiteFleetK1V21MatchProfile.h"
@@ -15,13 +16,12 @@
 #include "WhiteFleetBoosterPickupControl.h"
 #include "WhiteFleetC15KickoffSwitch.h"
 #include "WhiteFleetAutonomousKickoff.h"
-#include "WhiteFleetMatchTacticalRepair.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include <cstdio>
 
 namespace DirectKickOff
 {
-  struct WhiteFleetObstacleSector
+  struct ObstacleSector
   {
     Rangea sector; /**< The angular range relative to the ball that the obstacle blocks. */
     float distance; /**< The distance of the obstacle to the ball. */
@@ -48,17 +48,17 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
 {
   const auto autonomousKickoff = [&]() -> bool
   {
-    const bool physical=SystemCall::getMode()==SystemCall::physicalRobot;
+    const bool physical=WhiteFleetSimPhysical::physical();
     if(!WhiteFleetAutonomousKickoff::enabled(physical,WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver(),
-         SystemCall::getMode()==SystemCall::simulatedRobot,Global::getSettings().teamNumber,
-         nullptr))return false;
+         WhiteFleetSimPhysical::simulated(),Global::getSettings().teamNumber,
+         std::getenv("MDFZ_AUTONOMOUS_KICKOFF_V4_ENABLE")))return false;
     // Shared playbook identity also protects this entry from an old/local
     // shoot request on the receiver. All referee/body/ball gates below remain.
     const bool owner=WhiteFleetAutonomousKickoff::isKicker(theGameState.playerNumber)&&
         theGameState.ownTeam.playerStates[WhiteFleetAutonomousKickoff::kickerNumber-Settings::lowestValidPlayerNumber]==GameState::active;
     const bool legal=theGameState.state==GameState::ownKickOff&&theGameState.isForOwnTeam()
         &&!theGameState.stopped&&!theGameControllerData.stopped&&theGameState.playerState==GameState::active;
-    const bool body=(!physical||WhiteFleetBoosterOfficialLiveTest::bodyAuthorized())&&!theSystemSensorData.emergencyMode
+    const bool body=(!physical||WhiteFleetSimPhysical::bodyAuthorized())&&!theSystemSensorData.emergencyMode
         &&!theEmergencyButtonState.buttonPressed&&!theBehaviorStateInformation.remoteControlActive
         &&!WhiteFleetBoosterPickupControl::held()&&!WhiteFleetBoosterRemoteStand::held()
         &&theFallDownState.state==FallDownState::upright
@@ -77,7 +77,7 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
     if(admitted)
     {
       const Vector2f ball=theRobotPose*theBallModel.estimate.position;
-      const KickoffThroughV8::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
+      const WhiteFleetKickoffThroughV8::Field field{theFieldDimensions.xPosOwnGoalLine,theFieldDimensions.xPosOpponentGoalLine,
           theFieldDimensions.xPosOpponentPenaltyArea,theFieldDimensions.yPosLeftTouchline,theFieldDimensions.yPosLeftGoal};
       if(autonomousEvent!=theGameState.timeWhenStateStarted)
       {
@@ -98,40 +98,13 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
         if(!theGameState.ownTeam.isGoalkeeper(WhiteFleetAutonomousKickoff::receiverNumber)&&
            theGameState.ownTeam.playerStates[WhiteFleetAutonomousKickoff::receiverNumber-Settings::lowestValidPlayerNumber]==GameState::active)
           autonomousReceiver=WhiteFleetAutonomousKickoff::receiverNumber; // No ACK/readiness wait, no alternate recipient.
-        KickoffThroughV8::Point receiver{};bool receiverKnown=false;
+        WhiteFleetKickoffThroughV8::Point receiver{};bool receiverKnown=false;
         for(const Teammate& teammate:theTeamData.teammates)
           if(teammate.number==autonomousReceiver&&TeamActivityPolicy::fresh(theFrameInfo.time,teammate.theFrameInfo.time,1200u)&&
              teammate.theRobotPose.isFinite())
           {receiver={teammate.theRobotPose.translation.x(),teammate.theRobotPose.translation.y()};receiverKnown=true;break;}
         pass=WhiteFleetAutonomousKickoff::laneIntent({ball.x(),ball.y()},field,WhiteFleetC15KickoffSwitch::forwardPrepareParams(),
             theKickInfo,theBallSpecification,blockers,receiverKnown?&receiver:nullptr);
-        // Wide first pass past a defender standing in the normal lane. Sim: on unless
-        // MDFZ_KICKOFF_WIDE_LANE_ENABLE=0; real robot: only inside the guarded match profile (as this whole path).
-        const char* wideFlag=nullptr; // platform: no environment variables
-        const bool wideEnabled=physical?WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver():
-            !(wideFlag&&wideFlag[0]=='0'&&wideFlag[1]=='\0');
-        if(pass.valid&&wideEnabled&&pass.observedBlockers>0)
-        {
-          namespace M=WhiteFleetMatchTacticalRepair;
-          std::vector<M::LaneBlocker> lane;
-          for(const auto& b:blockers)lane.push_back({{b.center.x,b.center.y},b.radius});
-          const auto& kick=theKickInfo[KickInfo::rlKickDynamic];
-          const auto& calibration=WhiteFleetC15KickoffSwitch::forwardPrepareParams();
-          const float maxStop=KickoffThroughV8::calibratedStopDistance(kick.ballVelocity.max,calibration,theBallSpecification)-100.f;
-          const M::Point mReceiver{receiver.x,receiver.y};
-          const auto wide=M::wideKickoffLane({ball.x(),ball.y()},pass.observedClearance,lane,field.opponentGoal,
-              field.halfWidth,maxStop,receiverKnown?&mReceiver:nullptr);
-          const float stop=wide.valid?M::distance({ball.x(),ball.y()},wide.target):0.f;
-          const float nominal=wide.valid?KickoffThroughV8::calibratedNominalForStop(stop,calibration,theKickInfo,theBallSpecification):NAN;
-          if(wide.valid&&std::isfinite(nominal)&&nominal>=kick.range.min&&nominal<=kick.range.max)
-          {
-            std::printf("KICKOFF_WIDE_LANE self=%d event=%u normal_P=%.0f,%.0f normal_clearance=%.0f P=%.0f,%.0f clearance=%.0f\n",
-                theGameState.playerNumber,theGameState.timeWhenStateStarted,pass.target.x,pass.target.y,
-                pass.observedClearance,wide.target.x,wide.target.y,wide.clearance);
-            pass.target={wide.target.x,wide.target.y};pass.nominalLength=nominal;pass.requestedStopDistance=stop;
-            pass.observedClearance=wide.clearance;pass.rangeLimited=false;pass.reason="wide_lane_past_blocker";
-          }
-        }
         if(pass.valid)
         {
           const float before=BallPhysics::velocityForDistance(pass.nominalLength,theBallSpecification);
@@ -177,18 +150,21 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
   {
     transition
     {
-      if(wasActive)
+      if(theFrameInfo.getTimeSince(theExtendedGameState.timeWhenStateStarted[GameState::ownKickOff]) > forceKickAfterTime && wasActive)
         goto kick;
     }
     action
     {
       if(autonomousKickoff())return;
-      // v113: 不再等 forceKickAfterTime(平台 cfg 是 2000ms). 用户反馈开球时先站着,
-      // 等对方解除限制冲上来才出脚. 这里直接进入踢球分支, 开球即踢.
+      if(theFrameInfo.getTimeSince(theExtendedGameState.timeWhenStateStarted[GameState::ownKickOff]) < forceKickAfterTime)
       {
-
+        LookLeftAndRight({.tilt = theBehaviorParameters.defaultLookDownAngle});
+        Stand();
+      }
+      else
+      {
         // Prepare obstacle sectors.
-        std::vector<WhiteFleetObstacleSector> obstacleSectors;
+        std::vector<ObstacleSector> obstacleSectors;
         for(const Obstacle& obstacle : theObstacleModel.obstacles)
         {
           const Vector2f obstacleOnField = theRobotPose * obstacle.center;
@@ -228,7 +204,7 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
         obstacleSectors.back().x = 0.f;
 
         // Sort obstacles according to their absolute x coordinate (to ease culling later on).
-        std::sort(obstacleSectors.begin(), obstacleSectors.end(), [](const WhiteFleetObstacleSector& s1, const WhiteFleetObstacleSector& s2) { return s1.x < s2.x; });
+        std::sort(obstacleSectors.begin(), obstacleSectors.end(), [](const ObstacleSector& s1, const ObstacleSector& s2) { return s1.x < s2.x; });
 
         SectorWheel wheel;
         std::list<SectorWheel::Sector> sectors;
@@ -236,7 +212,7 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
         do
         {
           wheel.begin(theFieldBall.positionOnField);
-          for(const WhiteFleetObstacleSector& obstacleSector : obstacleSectors)
+          for(const ObstacleSector& obstacleSector : obstacleSectors)
             wheel.addSector(obstacleSector.sector, obstacleSector.distance, SectorWheel::Sector::obstacle);
           sectors = wheel.finish();
 
@@ -292,7 +268,23 @@ option((WhiteFleetSkillBehaviorControl) DirectKickOff,
           }
         }
 
-        ASSERT(bestOpeningAngle > 0_deg);
+        // MDFZ v32: 全场被挡时原来直接 ASSERT, 平台是断言开的构建就会把机器人进程打死.
+        // 改成退到"剩下最宽的自由扇区", 真全堵住就朝正前方, 至少把球开出去.
+        if(bestOpeningAngle == 0_deg)
+        {
+          for(const SectorWheel::Sector& sector : sectors)
+          {
+            if(sector.type != SectorWheel::Sector::free)
+              continue;
+            if(bestOpeningAngle == 0_deg || sector.angleRange.getSize() > bestOpeningAngle)
+            {
+              bestOpeningAngle = sector.angleRange.getSize();
+              bestTargetAngle = sector.angleRange.getCenter();
+            }
+          }
+          if(bestOpeningAngle == 0_deg)
+            bestTargetAngle = 0_deg;
+        }
 
         targetAngle = bestTargetAngle;
         float kickLength = Vector2f(theFieldDimensions.xPosOpponentGoal / 2.f, theFieldDimensions.yPosLeftTouchline / 2.f).norm();

@@ -113,9 +113,8 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
     theStrategyStatus.role = self->role;
     if(WhiteFleetDefenseCounterSwitch::enabled()&&!autonomousKickoff)
       applyDefenseCounter(skillRequest,*self);
-    if(WhiteFleetC15KickoffSwitch::enabled(theBehaviorParameters.matchTacticalRepair&&theBehaviorParameters.c15Kickoff)&&
-       (theGameState.state==GameState::setupOwnKickOff||theGameState.state==GameState::waitForOwnKickOff))
-      applyKickoffThrough(skillRequest,*self); // Legal READY preparation and SET hold only.
+    // v119: 开球准备交给原生 PlayBall->DirectKickOff(v33 路径), 这里不再用 C15 契约接管 kicker.
+    // 只注释这一处调用, 其他策略逻辑不动.
     if(!autonomousKickoff&&!skillRequest.kickoffThrough&&!skillRequest.restartPassRequired)
     {
       if(!applyBackfieldOutlet(skillRequest,*self))applyOpponentSidePosition(skillRequest,*self);
@@ -142,9 +141,10 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
   // v117: 平台的开球状态序列是 setup/waitFor -> 直接 playing(没有 ownKickOff),
   // 日志 OWN_KICKOFF_EVIDENCE 里 raw_state=3, 所以任何 state==ownKickOff 的判断都不会触发.
   // 改成: playing 刚开始的 3 秒内, 球还在中点附近, 我比所有对手都更靠近球 -> 直接出脚.
+  // v118: 去掉 3 秒时间窗 -- v117 在平台上没触发, 最可能是 3 秒内发球人还没走到 1500mm 以内.
+  // 现在只看物理条件: 球在中点附近 + 我是离球最近的人.
   if(self && !wasPenalized && !theGameState.ownTeam.isGoalkeeper(self->number) &&
-     theGameState.state==GameState::playing &&
-     theFrameInfo.getTimeSince(theGameState.timeWhenStateStarted)<3000)
+     theGameState.state==GameState::playing)
   {
     const Vector2f kb=theFieldBall.positionOnField;
     const float myD=(kb-theRobotPose.translation).norm();
@@ -164,7 +164,7 @@ void WhiteFleetStrategyBehaviorControl::update(SkillRequest& skillRequest)
                   static_cast<int>(skillRequest.skill));
       std::fflush(stdout);
     }
-    if(nearCentre && myD<1500.f && myD<oppD)
+    if(nearCentre && myD<1800.f && myD<oppD)
       skillRequest=SkillRequest::Builder::shoot();
   }
 
