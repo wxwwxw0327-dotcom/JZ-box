@@ -183,7 +183,7 @@ option((WhiteFleetSkillBehaviorControl) PlayBall,
         if(theSkillRequest.skill==SkillRequest::pass && theSkillRequest.passTarget>0 &&
            theSkillRequest.target.translation.allFinite() && theSkillRequest.target.translation.x()>0.f)
           PassToTeammate({.playerNumber=theSkillRequest.passTarget});
-        else {LookActive({.withBall=true});Stand();}
+        else DirectKickOff();   // v121: 战略没指定传球目标时直接大脚, 不再站着等
       }
       else DirectKickOff();
     }
