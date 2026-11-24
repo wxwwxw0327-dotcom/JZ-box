@@ -286,6 +286,7 @@ protected:
   bool handleCloseBallSearch();
   bool handlePredictedBallPursuit();
   void lookRoughlyAtBall(const Vector2f& relative);
+  bool handleKeeperShotPositioning();
 
   /**< Clips walk speed near field border. */
   void handleWalkSpeedAtFieldBorder();

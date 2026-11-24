@@ -334,6 +334,44 @@ bool WhiteFleetSkillBehaviorControl::handleRestartReceive()
   return false;
 }
 
+bool WhiteFleetSkillBehaviorControl::handleKeeperShotPositioning()
+{
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || !theGameState.isGoalkeeper() ||
+     theGameState.state != GameState::playing || theGameState.stopped || theGameControllerData.stopped ||
+     theGameState.playerState != GameState::active || theBehaviorStateInformation.remoteControlActive ||
+     WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
+     theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
+     theFallDownState.state != FallDownState::upright ||
+     (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
+     !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor ||
+     theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath)
+    return false;
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const bool ownBall = seen && seen <= theFrameInfo.time && theFrameInfo.time - seen <= 300u &&
+    theFieldBall.ballWasSeen(300) && theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite();
+  if(!ownBall && !theTeamBallModel.isValid)
+    return false;
+  const Vector2f ball = ownBall ? theFieldBall.positionOnField : theTeamBallModel.position;
+  const Vector2f velocity = ownBall ? theBallModel.estimate.velocity.rotated(theRobotPose.rotation) : theTeamBallModel.velocity;
+  const float plane = theFieldDimensions.xPosOwnGoalLine + 350.f;
+  if(!ball.allFinite() || !velocity.allFinite() || velocity.x() >= -300.f || ball.x() <= plane)
+    return false;
+  const float atGoal = ball.y() + velocity.y() * (theFieldDimensions.xPosOwnGoalLine - ball.x()) / velocity.x();
+  if(std::abs(atGoal) > theFieldDimensions.yPosLeftGoal + theBallSpecification.radius + 200.f)
+    return false;
+  const Vector2f crossing(plane, ball.y() + velocity.y() * (plane - ball.x()) / velocity.x());
+  const float arrival = BallPhysics::timeForDistance(velocity, (crossing - ball).norm(), theBallSpecification);
+  if(!std::isfinite(arrival) || arrival <= 0.f || arrival > 2.5f)
+    return false;
+  const float limit = std::max(0.f, theFieldDimensions.yPosLeftGoal - theFieldDimensions.goalPostRadius - 150.f);
+  const Vector2f target(plane, std::clamp(crossing.y(), -limit, limit));
+  WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * target),
+                      .reduceWalkSpeedType = ReduceWalkSpeedType::noChange, .disableAligning = true});
+  const Vector2f relativeBall = theRobotPose.inverse() * ball;
+  LookAtPoint({.target = {relativeBall.x(), relativeBall.y(), theBallSpecification.radius}});
+  return true;
+}
+
 void WhiteFleetSkillBehaviorControl::observeCloseBall()
 {
   if(SystemCall::getMode() != SystemCall::simulatedRobot || theGameState.state != GameState::playing ||

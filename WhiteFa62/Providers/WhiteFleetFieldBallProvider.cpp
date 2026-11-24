@@ -23,6 +23,8 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
   fieldBall.endPositionOnField      = theRobotPose * fieldBall.endPositionRelative;
   fieldBall.velocityRelative = theBallModel.estimate.velocity;
   fieldBall.velocityOnField = theRobotPose * fieldBall.velocityRelative;
+  if(theGameState.isGoalkeeper())
+    fieldBall.velocityOnField = fieldBall.velocityRelative.rotated(theRobotPose.rotation);
 
   fieldBall.teamBallIsValid = theTeamBallModel.isValid;
   if(theTeamBallModel.isValid)
@@ -33,6 +35,11 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
     fieldBall.teamEndPositionRelative = theRobotPose.inverse() * fieldBall.teamEndPositionOnField;
     fieldBall.teamVelocityOnField = theRobotPose.inverse() * fieldBall.teamVelocityRelative;
     fieldBall.teamVelocityRelative = theTeamBallModel.velocity;
+    if(theGameState.isGoalkeeper())
+    {
+      fieldBall.teamVelocityOnField = theTeamBallModel.velocity;
+      fieldBall.teamVelocityRelative = fieldBall.teamVelocityOnField.rotated(-theRobotPose.rotation);
+    }
   }
 
   fieldBall.timeSinceBallWasSeen = theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen);
