@@ -47,6 +47,9 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
     commonSpeedParameters.yTargetScaling.walkSpeed.max = std::max(
       commonSpeedParameters.yTargetScaling.walkSpeed.max * speedScale,
       configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
+    commonSpeedParameters.maxAcceleration *= 1.45f;
+    commonSpeedParameters.maxDeceleration *= 1.45f;
+    frequencyParametersWalk.base *= 1.10f;
   }
 
   boosterJoints = { Joints::lHipPitch,
