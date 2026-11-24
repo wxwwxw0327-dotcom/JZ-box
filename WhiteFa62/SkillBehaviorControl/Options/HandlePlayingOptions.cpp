@@ -9,7 +9,9 @@ option((WhiteFleetSkillBehaviorControl) HandlePlayingOptions,
     action
     {
       postKickPlayingVisited = true;
-      if(!handlePostKickReacquire() && !select_option(options))
+      if(handleSimulatedOwnKickoff())
+        handleWalkSpeedAtFieldBorder();
+      else if(!handlePostKickReacquire() && !select_option(options))
       {
         executeRequest();
         handleWalkSpeedAtFieldBorder();

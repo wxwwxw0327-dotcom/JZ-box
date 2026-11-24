@@ -134,6 +134,7 @@ void WhiteFleetSkillBehaviorControl::update(ActivationGraph&)
   WhiteFleetBoosterOfficialLiveTest::notePreviousPlayerState(static_cast<unsigned>(theExtendedGameState.playerStateLastFrame));
   physicalPickupVisited = false;
   postKickPlayingVisited = false;
+  updateSimulatedOwnKickoff();
   beginFrame(theFrameInfo.time);
   // The process-wide commissioning flag is set before Robot construction and
   // cannot be overridden by scenario, robot configuration, or remote buttons.
@@ -1283,29 +1284,99 @@ bool WhiteFleetSkillBehaviorControl::handleGoalKickObservation()
   return true; // Region search only: no translated chase, fresh-ball fabrication or kick.
 }
 
-void WhiteFleetSkillBehaviorControl::executeRequest()
+void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
 {
-  // v125: 开球帧优先. 原来这段在 skill==shoot/pass/dribble/clear 分支里,
-  // 但开球时原生给的 skill 是 walk/stand, 那个分支根本不进 -- 所以一直不开球.
+  // The playing option can be preempted on the transition frame. Observe the
+  // referee state here so the kicker can resume within the same kickoff window.
+  const auto state = theGameState.state;
+  const auto previous = simulatedKickoffState;
+  simulatedKickoffState = state;
+  const bool designatedKicker = SystemCall::getMode() == SystemCall::simulatedRobot &&
+    WhiteFleetAutonomousKickoff::isKicker(theGameState.playerNumber) && !theGameState.isGoalkeeper();
+  if(!designatedKicker || theGameState.playerState != GameState::active ||
+     theGameState.isPenaltyShootout() || theGameControllerData.setPlay != SET_PLAY_NONE)
   {
-    // v126: 不再硬要求"最近 300ms 看见球". 发球人站着背对球时 ballWasSeen 会失败,
-    // 整个开球判断就被跳过 -- 录像里"该开球的那台站着不动"就是这个.
-    // 开球帧的球就在中点, 看不见时直接用 (0,0).
-    const Vector2f kb=theFieldBall.ballWasSeen(1000)&&theFieldBall.positionOnField.allFinite()
-        ? theFieldBall.positionOnField : Vector2f(0.f,0.f);
-    const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
-        !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
-        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
-        (kb-theRobotPose.translation).norm()<2500.f;
-    if(kickoffFrame)
+    simulatedKickoffPending = false;
+    return;
+  }
+
+  if(state != previous)
+  {
+    const bool fromOwnSetup = previous == GameState::waitForOwnKickOff || previous == GameState::setupOwnKickOff;
+    const bool flatOwnKickoff = state == GameState::playing && fromOwnSetup &&
+      theGameControllerData.state == STATE_PLAYING &&
+      theGameControllerData.kickingTeam == Global::getSettings().teamNumber;
+    simulatedKickoffPending = state == GameState::ownKickOff || flatOwnKickoff;
+    if(simulatedKickoffPending)
     {
-      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
-      GoToBallAndKick({.targetDirection=Angle::normalize((aim-kb).angle()-theRobotPose.rotation),
-                       .kickType=KickInfo::rlKickDynamicOld,
-                       .length=std::numeric_limits<float>::max()});
-      return;
+      simulatedKickoffStart = theGameState.timeWhenStateStarted;
+      simulatedKickoffKickAtStart = theMotionInfo.lastKickTimestamp;
+      if(state == GameState::ownKickOff)
+      {
+        // The normal post-kick hold needs a baseline taken before the first kick.
+        kickerHoldEvent = simulatedKickoffStart;
+        kickerKickAt = 0;
+        kickerHoldBaseline = simulatedKickoffKickAtStart;
+      }
     }
   }
+
+  constexpr unsigned flatKickoffWindowMs = 8000;
+  const unsigned now = theFrameInfo.time;
+  if(simulatedKickoffPending &&
+     (theGameState.timeWhenStateStarted != simulatedKickoffStart || now < simulatedKickoffStart ||
+      theMotionInfo.lastKickTimestamp > simulatedKickoffKickAtStart ||
+      (state == GameState::ownKickOff ? now >= theGameState.timeWhenStateEnds :
+       now - simulatedKickoffStart >= flatKickoffWindowMs)))
+    simulatedKickoffPending = false;
+}
+
+bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
+{
+  if(!simulatedKickoffPending || theGameControllerData.state != STATE_PLAYING ||
+     theGameControllerData.kickingTeam != Global::getSettings().teamNumber ||
+     theGameState.stopped || theGameControllerData.stopped || theBehaviorStateInformation.remoteControlActive ||
+     WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
+     theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
+     theFallDownState.state != FallDownState::upright ||
+     (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
+     !theRobotPose.isFinite())
+    return false;
+
+  const Vector2f center(theFieldDimensions.xPosHalfwayLine, 0.f);
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const unsigned now = theFrameInfo.time;
+  const Vector2f& ball = theFieldBall.positionOnField;
+  const bool ballSeen = seen && seen <= now && now - seen <= 300 && theFieldBall.ballWasSeen(300) &&
+    ball.allFinite() && theFieldBall.positionRelative.allFinite();
+  if(ballSeen)
+  {
+    if((ball - center).squaredNorm() > sqr(600.f))
+    {
+      simulatedKickoffPending = false;
+      return false;
+    }
+    const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine, 0.f);
+    GoToBallAndKick({.targetDirection = Angle::normalize((aim - ball).angle() - theRobotPose.rotation),
+                     .kickType = KickInfo::rlKickStrong});
+  }
+  else
+  {
+    // Aim the camera at the restart spot without giving the motion engine an
+    // invented ball position. Turn in place if the spot is outside the head's view.
+    const Vector2f centerRelative = theRobotPose.inverse() * center;
+    const Angle turn = centerRelative.angle();
+    if(std::abs(turn) > 45_deg)
+      WalkToPoint({.target = Pose2f(turn, Vector2f::Zero())});
+    else
+      Stand();
+    LookAtPoint({.target = {centerRelative.x(), centerRelative.y(), theBallSpecification.radius}});
+  }
+  return true;
+}
+
+void WhiteFleetSkillBehaviorControl::executeRequest()
+{
   if(handleC15Kickoff())return;
   if(handleGoalKickObservation())return; // Called only below the original physical/manual/referee gates.
   if(handleRestartReceive())return; // Restart-only receiver lease beats a transient native playBall reassignment.
@@ -1322,28 +1393,7 @@ void WhiteFleetSkillBehaviorControl::executeRequest()
           theSkillRequest.skill == SkillRequest::pass ||
           theSkillRequest.skill == SkillRequest::dribble ||
           theSkillRequest.skill == SkillRequest::clear)
-  {
-    // v122: 平台从不下发 ownKickOff(GameStateProvider 里 secondaryTime>0 才返回),
-    // 所以 PlayBall::state(kickOff) 和 DirectKickOff 的 legal 判断永远进不去.
-    // 在 PLAY 首帧、球还在中点、我在 2.5m 内时直接走原生开球技能(大脚).
-    const Vector2f kb=theFieldBall.positionOnField;
-    const bool kickoffFrame=theGameState.state==GameState::playing&&!theGameState.stopped&&
-        !theGameState.isGoalkeeper()&&theGameState.playerState==GameState::active&&
-        theFieldBall.ballWasSeen(300)&&kb.allFinite()&&
-        std::abs(kb.x())<600.f&&std::abs(kb.y())<600.f&&
-        (kb-theRobotPose.translation).norm()<2500.f;
-    if(kickoffFrame)
-    {
-      // v123: 照 v33 的开球本质 -- 不经过 DirectKickOff 的任何 admitted/legal/证据判断,
-      // 直接朝对方球门方向满力大脚.
-      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine,0.f);
-      GoToBallAndKick({.targetDirection=Angle::normalize((aim-kb).angle()-theRobotPose.rotation),
-                       .kickType=KickInfo::rlKickDynamicOld,
-                       .length=std::numeric_limits<float>::max()});
-    }
-    else
-      PlayBall();
-  }
+    PlayBall();
   else if(theSkillRequest.skill == SkillRequest::waitShoot)
     GoToBallWaitAndKick();
   else
