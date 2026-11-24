@@ -345,27 +345,99 @@ bool WhiteFleetSkillBehaviorControl::handleKeeperShotPositioning()
      (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
      !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor ||
      theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath)
+  {
+    keeperPositioning = {};
     return false;
+  }
+  const unsigned now = theFrameInfo.time;
   const unsigned seen = theBallModel.timeWhenLastSeen;
-  const bool ownBall = seen && seen <= theFrameInfo.time && theFrameInfo.time - seen <= 300u &&
-    theFieldBall.ballWasSeen(300) && theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite();
-  if(!ownBall && !theTeamBallModel.isValid)
+  const bool ownBall = TeamActivityPolicy::fresh(now, seen, 250u) && theFieldBall.ballWasSeen(250) &&
+    theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite();
+  Vector2f ball = Vector2f::Zero(), velocity = Vector2f::Zero();
+  bool haveBall = ownBall;
+  if(ownBall)
+  {
+    ball = theFieldBall.positionOnField;
+    velocity = theBallModel.estimate.velocity.rotated(theRobotPose.rotation);
+  }
+  else if(theTeamBallModel.isValid && theTeamBallModel.position.allFinite() && theTeamBallModel.velocity.allFinite())
+  {
+    ball = theTeamBallModel.position;
+    velocity = theTeamBallModel.velocity;
+    haveBall = true;
+  }
+  else
+  {
+    // A recent real peer observation can prepare the keeper before fusion is valid.
+    unsigned newestSeen = 0;
+    for(const Teammate& peer : theTeamData.teammates)
+    {
+      if(peer.number < Settings::lowestValidPlayerNumber || peer.number > Settings::highestValidPlayerNumber ||
+         peer.number == theGameState.playerNumber || !peer.theRobotStatus.isUpright ||
+         theGameState.ownTeam.playerStates[peer.number - Settings::lowestValidPlayerNumber] != GameState::active ||
+         !peer.theRobotPose.isFinite() || peer.theRobotPose.quality == RobotPose::poor ||
+         !TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 700u) ||
+         !TeamActivityPolicy::fresh(now, peer.theBallModel.timeWhenLastSeen, 700u) ||
+         peer.theBallModel.timeWhenLastSeen > peer.theFrameInfo.time ||
+         peer.theBallModel.timeWhenLastSeen <= newestSeen ||
+         !peer.theBallModel.estimate.position.allFinite() || !peer.theBallModel.estimate.velocity.allFinite())
+        continue;
+      ball = peer.theRobotPose * peer.theBallModel.estimate.position;
+      velocity = peer.theBallModel.estimate.velocity.rotated(peer.theRobotPose.rotation);
+      BallPhysics::propagateBallPositionAndVelocity(ball, velocity, (now - peer.theFrameInfo.time) * .001f, theBallSpecification);
+      newestSeen = peer.theBallModel.timeWhenLastSeen;
+      haveBall = true;
+    }
+  }
+  const float goalX = theFieldDimensions.xPosOwnGoalLine;
+  const float plane = goalX + 350.f;
+  if(!haveBall || !ball.allFinite() || !velocity.allFinite() || ball.x() <= plane ||
+     ball.x() > theFieldDimensions.xPosOpponentGoalLine + 300.f ||
+     std::abs(ball.y()) > theFieldDimensions.yPosLeftTouchline + 300.f ||
+     velocity.norm() > theBallSpecification.ballSpeedUpperBound)
+  {
+    keeperPositioning = {};
     return false;
-  const Vector2f ball = ownBall ? theFieldBall.positionOnField : theTeamBallModel.position;
-  const Vector2f velocity = ownBall ? theBallModel.estimate.velocity.rotated(theRobotPose.rotation) : theTeamBallModel.velocity;
-  const float plane = theFieldDimensions.xPosOwnGoalLine + 350.f;
-  if(!ball.allFinite() || !velocity.allFinite() || velocity.x() >= -300.f || ball.x() <= plane)
-    return false;
-  const float atGoal = ball.y() + velocity.y() * (theFieldDimensions.xPosOwnGoalLine - ball.x()) / velocity.x();
-  if(std::abs(atGoal) > theFieldDimensions.yPosLeftGoal + theBallSpecification.radius + 200.f)
-    return false;
-  const Vector2f crossing(plane, ball.y() + velocity.y() * (plane - ball.x()) / velocity.x());
-  const float arrival = BallPhysics::timeForDistance(velocity, (crossing - ball).norm(), theBallSpecification);
-  if(!std::isfinite(arrival) || arrival <= 0.f || arrival > 2.5f)
-    return false;
+  }
+
   const float limit = std::max(0.f, theFieldDimensions.yPosLeftGoal - theFieldDimensions.goalPostRadius - 150.f);
-  const Vector2f target(plane, std::clamp(crossing.y(), -limit, limit));
-  WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * target),
+  // Prepare on the ball-to-goal line as soon as any trusted observation is available.
+  // This has no ball-distance or arrival-time gate and never chases away from goal.
+  Vector2f target(goalX + 650.f, std::clamp(ball.y() * 650.f / (ball.x() - goalX), -limit, limit));
+  bool shot = false;
+  float arrival = std::numeric_limits<float>::max();
+  if(velocity.x() < -300.f)
+  {
+    const float atGoal = ball.y() + velocity.y() * (goalX - ball.x()) / velocity.x();
+    if(std::abs(atGoal) <= theFieldDimensions.yPosLeftGoal + theBallSpecification.radius + 200.f)
+    {
+      const Vector2f crossing(plane, ball.y() + velocity.y() * (plane - ball.x()) / velocity.x());
+      arrival = BallPhysics::timeForDistance(velocity, (crossing - ball).norm(), theBallSpecification);
+      const float crossingY = std::clamp(crossing.y(), -limit, limit);
+      const float lateralSpeed = std::clamp(theWalkingEngineOutput.maxSpeed.translation.y() * .6f, 200.f, 1800.f);
+      const float prepareTime = std::clamp(1.f + std::abs(crossingY - theRobotPose.translation.y()) / lateralSpeed, 3.5f, 6.f);
+      shot = std::isfinite(arrival) && arrival > 0.f && arrival <= prepareTime;
+      if(shot)
+        target = Vector2f(plane, crossingY);
+    }
+  }
+  const bool nativeBallAction = theSkillRequest.skill == SkillRequest::shoot || theSkillRequest.skill == SkillRequest::pass ||
+    theSkillRequest.skill == SkillRequest::dribble || theSkillRequest.skill == SkillRequest::clear ||
+    theSkillRequest.skill == SkillRequest::waitShoot;
+  if(!shot && nativeBallAction)
+  {
+    keeperPositioning = {};
+    return false;
+  }
+
+  // Ignore small observation jitter during preparation. Urgent shots update immediately.
+  if(!keeperPositioning.updated || now < keeperPositioning.updated || now - keeperPositioning.updated > 250u ||
+     shot != keeperPositioning.shot || (shot && arrival <= 1.2f) ||
+     (target - keeperPositioning.target).squaredNorm() > sqr(80.f))
+    keeperPositioning.target = target;
+  keeperPositioning.updated = now;
+  keeperPositioning.shot = shot;
+  WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * keeperPositioning.target),
                       .reduceWalkSpeedType = ReduceWalkSpeedType::noChange, .disableAligning = true});
   const Vector2f relativeBall = theRobotPose.inverse() * ball;
   LookAtPoint({.target = {relativeBall.x(), relativeBall.y(), theBallSpecification.radius}});

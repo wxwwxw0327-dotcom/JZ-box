@@ -267,6 +267,12 @@ private:
     Angle turn = 0_deg;
   } closeBallSearch;
   bool closeBallSearchVisited = false;
+  struct KeeperPositioning
+  {
+    unsigned updated = 0;
+    Vector2f target = Vector2f::Zero();
+    bool shot = false;
+  } keeperPositioning;
   void observeCloseBall();
   bool handleKickerPostKickHold(); // 2026-11-10: kicker never plays its own kickoff pass again for 10 s
   void publishAutonomousKickoffIntent();
