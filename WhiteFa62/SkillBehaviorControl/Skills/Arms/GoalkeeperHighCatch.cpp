@@ -18,7 +18,7 @@ option((WhiteFleetSkillBehaviorControl) GoalkeeperHighCatch)
       const float oppRange = 400.f; /**<Range around Ball to check for opponent*/
 
       if(theGameState.isGoalkeeper() && !theGameState.isFreeKick() &&
-         theFieldBall.ballWasSeen(1000) && between<float>(std::abs(theFieldBall.positionOnField.x()), std::abs(theFieldDimensions.xPosOwnPenaltyArea), theFieldDimensions.centerCircleRadius))
+         theFieldBall.ballWasSeen(1000) && between<float>(std::abs(theFieldBall.positionOnField.x()), theFieldDimensions.centerCircleRadius, std::abs(theFieldDimensions.xPosOwnPenaltyArea)))
       {
         for(GlobalOpponentsModel::OpponentEstimate opponent : theGlobalOpponentsModel.opponents) //check if opponent in Position to shoot a (high) shot
         {

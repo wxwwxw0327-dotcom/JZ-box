@@ -334,6 +334,114 @@ bool WhiteFleetSkillBehaviorControl::handleRestartReceive()
   return false;
 }
 
+bool WhiteFleetSkillBehaviorControl::handleKeeperShotPositioning()
+{
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || !theGameState.isGoalkeeper() ||
+     theGameState.state != GameState::playing || theGameState.stopped || theGameControllerData.stopped ||
+     theGameState.playerState != GameState::active || theBehaviorStateInformation.remoteControlActive ||
+     WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
+     theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
+     theFallDownState.state != FallDownState::upright ||
+     (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
+     !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor ||
+     theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath)
+    return false;
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const bool ownBall = seen && seen <= theFrameInfo.time && theFrameInfo.time - seen <= 300u &&
+    theFieldBall.ballWasSeen(300) && theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite();
+  if(!ownBall && !theTeamBallModel.isValid)
+    return false;
+  const Vector2f ball = ownBall ? theFieldBall.positionOnField : theTeamBallModel.position;
+  const Vector2f velocity = ownBall ? theBallModel.estimate.velocity.rotated(theRobotPose.rotation) : theTeamBallModel.velocity;
+  const float plane = theFieldDimensions.xPosOwnGoalLine + 350.f;
+  if(!ball.allFinite() || !velocity.allFinite() || velocity.x() >= -300.f || ball.x() <= plane)
+    return false;
+  const float atGoal = ball.y() + velocity.y() * (theFieldDimensions.xPosOwnGoalLine - ball.x()) / velocity.x();
+  if(std::abs(atGoal) > theFieldDimensions.yPosLeftGoal + theBallSpecification.radius + 200.f)
+    return false;
+  const Vector2f crossing(plane, ball.y() + velocity.y() * (plane - ball.x()) / velocity.x());
+  const float arrival = BallPhysics::timeForDistance(velocity, (crossing - ball).norm(), theBallSpecification);
+  if(!std::isfinite(arrival) || arrival <= 0.f || arrival > 2.5f)
+    return false;
+  const float limit = std::max(0.f, theFieldDimensions.yPosLeftGoal - theFieldDimensions.goalPostRadius - 150.f);
+  const Vector2f target(plane, std::clamp(crossing.y(), -limit, limit));
+  WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * target),
+                      .reduceWalkSpeedType = ReduceWalkSpeedType::noChange, .disableAligning = true});
+  const Vector2f relativeBall = theRobotPose.inverse() * ball;
+  LookAtPoint({.target = {relativeBall.x(), relativeBall.y(), theBallSpecification.radius}});
+  return true;
+}
+
+bool WhiteFleetSkillBehaviorControl::handleKickoffReceiverSetup()
+{
+  if(SystemCall::getMode() != SystemCall::simulatedRobot ||
+     theGameState.state != GameState::setupOwnKickOff || theGameState.stopped || theGameControllerData.stopped ||
+     theGameState.playerState != GameState::active || theGameState.isGoalkeeper() ||
+     !WhiteFleetAutonomousKickoff::isReceiver(theGameState.playerNumber) || !theRobotPose.isFinite())
+    return false;
+  const float side = theRobotPose.translation.y() < 0.f ? -1.f : 1.f;
+  const float offset = theFieldDimensions.centerCircleRadius * .45f;
+  const Vector2f target(theFieldDimensions.xPosHalfwayLine - offset, side * offset);
+  WalkToPointReady({.target = Pose2f(0_deg, target), .reduceWalkSpeedType = ReduceWalkSpeedType::noChange});
+  return true;
+}
+
+bool WhiteFleetSkillBehaviorControl::restartKickLaneIsClear(Angle direction, float length)
+{
+  const bool restart = theGameState.isForOwnTeam() &&
+    (theGameState.isGoalKick() || theGameState.isCornerKick() || theGameState.isKickIn());
+  if(!restart)
+    return true;
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const Vector2f ball = theFieldBall.positionOnField;
+  if(!seen || seen > theFrameInfo.time || theFrameInfo.time - seen > 250u || !theFieldBall.ballWasSeen(250) ||
+     !ball.allFinite() || !std::isfinite(direction) || !std::isfinite(length) || length <= 0.f ||
+     !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor || theGameState.stopped || theGameControllerData.stopped)
+    return false;
+  const Vector2f ray = Vector2f(std::clamp(length, 500.f, 12000.f), 0.f).rotated(direction + theRobotPose.rotation);
+  const Vector2f end = ball + ray;
+  const auto blocked = [&](const Vector2f& center, float radius)
+  {
+    if(!center.allFinite())
+      return true;
+    const float along = (center - ball).dot(ray) / ray.squaredNorm();
+    return along > 0.f && along <= 1.f && (center - (ball + along * ray)).squaredNorm() < sqr(radius);
+  };
+  for(const auto& opponent : theGlobalOpponentsModel.opponents)
+    if(blocked(opponent.position, 400.f + theBallSpecification.radius))
+      return false;
+  for(const Obstacle& obstacle : theObstacleModel.obstacles)
+    if(!obstacle.isTeammate() && TeamActivityPolicy::fresh(theFrameInfo.time, obstacle.lastSeen, 600u) &&
+       blocked(theRobotPose * obstacle.center,
+               std::max(250.f, .5f * (obstacle.left - obstacle.right).norm()) + theBallSpecification.radius + 150.f))
+      return false;
+  return end.allFinite();
+}
+
+bool WhiteFleetSkillBehaviorControl::restartPassIsSafe(const Vector2f& ball, const Vector2f& target, int receiver)
+{
+  const bool restart = theGameState.isForOwnTeam() &&
+    (theGameState.isGoalKick() || theGameState.isCornerKick() || theGameState.isKickIn());
+  if(!restart)
+    return true;
+  if(!ball.allFinite() || !target.allFinite() || receiver < Settings::lowestValidPlayerNumber ||
+     receiver > Settings::highestValidPlayerNumber || receiver == theGameState.playerNumber ||
+     theGameState.ownTeam.playerStates[receiver - Settings::lowestValidPlayerNumber] != GameState::active)
+    return false;
+  const auto peer = std::find_if(theTeamData.teammates.begin(), theTeamData.teammates.end(),
+    [&](const Teammate& teammate) { return teammate.number == receiver; });
+  if(peer == theTeamData.teammates.end() || !peer->theRobotStatus.isUpright || !peer->theRobotPose.isFinite() ||
+     !TeamActivityPolicy::fresh(theFrameInfo.time, peer->theFrameInfo.time, 1200u))
+    return false;
+  const float receiverDistance = (peer->theRobotPose.translation - target).norm();
+  for(const auto& opponent : theGlobalOpponentsModel.opponents)
+    if(!opponent.position.allFinite() || (opponent.position - target).norm() < receiverDistance + 500.f)
+      return false;
+  const float rating = thePassEvaluation.getRating(ball, target, false);
+  return std::isfinite(rating) && rating >= .7f &&
+    restartKickLaneIsClear(Angle::normalize((target - ball).angle() - theRobotPose.rotation), (target - ball).norm());
+}
+
 void WhiteFleetSkillBehaviorControl::observeCloseBall()
 {
   if(SystemCall::getMode() != SystemCall::simulatedRobot || theGameState.state != GameState::playing ||
@@ -1595,7 +1703,7 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
       // Freeze the side at kickoff, so the approaching foot does not change aim
       // when the receiver crosses the centre line or a later team packet arrives.
       const float postMargin = theFieldDimensions.goalPostRadius + theBallSpecification.radius + 450.f;
-      const float offset = std::min(600.f, std::max(0.f, theFieldDimensions.yPosLeftGoal - postMargin));
+      const float offset = std::min(450.f, std::max(0.f, theFieldDimensions.yPosLeftGoal - postMargin));
       const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine, simulatedKickoffSide * offset);
       GoToBallAndKick({.targetDirection = Angle::normalize((aim - ball).angle() - theRobotPose.rotation),
                        .kickType = KickInfo::rlKickStrong});

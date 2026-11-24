@@ -9,7 +9,7 @@ option((WhiteFleetSkillBehaviorControl) HandlePlayingOptions,
     action
     {
       postKickPlayingVisited = true;
-      if(handleCloseBallSearch() || handlePredictedBallPursuit() || handleSimulatedOwnKickoff())
+      if(handleKeeperShotPositioning() || handleCloseBallSearch() || handlePredictedBallPursuit() || handleSimulatedOwnKickoff())
         handleWalkSpeedAtFieldBorder();
       else if(!handlePostKickReacquire() && !select_option(options))
       {

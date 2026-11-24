@@ -15,6 +15,11 @@ option((WhiteFleetSkillBehaviorControl) ClearBall,
             (KickInfo::KickType)(KickInfo::rlKickDynamic) kickType,
             (float)(std::numeric_limits<float>::max()) kickLength))
 {
+  const bool liveRestart = theGameState.isForOwnTeam() &&
+    (theGameState.isGoalKick() || theGameState.isCornerKick() || theGameState.isKickIn());
+  if(liveRestart)
+    theClearTarget.update();
+
   // Should only be necessary when replaying logs
   if(!theClearTarget.isValid)
   {
@@ -43,10 +48,10 @@ option((WhiteFleetSkillBehaviorControl) ClearBall,
   {
     action
     {
-      if(state_time == 0)
+      if(state_time == 0 || liveRestart)
       {
         kickAngleInField = Angle::normalize(theClearTarget.kickAngle + theRobotPose.rotation);
-        kickType = theClearTarget.kickType == KickInfo::rlKickDynamic
+        kickType = !liveRestart && theClearTarget.kickType == KickInfo::rlKickDynamic
                    && theClearTarget.kickLength < kickLength
                    ? KickInfo::rlKickDynamicOld : theClearTarget.kickType;
         kickLength = theClearTarget.kickLength;

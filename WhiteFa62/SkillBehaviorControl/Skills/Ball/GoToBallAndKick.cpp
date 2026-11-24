@@ -46,6 +46,13 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
   if(chaseWindow || fastApproach)
     walkingSpeedRatio.translation.x() = Rangef::ZeroOneRange().limit(speed.translation.x());
 
+  const bool restartLaneClear = restartKickLaneIsClear(targetDirection, length);
+  common_transition
+  {
+    if(!restartLaneClear)
+      goto waitForRestartLane;
+  }
+
   initial_state(walkToBallFarRange)
   {
     transition
@@ -219,6 +226,20 @@ option((WhiteFleetSkillBehaviorControl) GoToBallAndKick,
                          .kickLength = length,
                          .speed = walkingSpeedRatio,
                          .obstacleAvoidance = obstacleAvoidance});
+    }
+  }
+
+  state(waitForRestartLane)
+  {
+    transition
+    {
+      if(restartLaneClear)
+        goto walkToBallFarRange;
+    }
+    action
+    {
+      LookActive({.withBall = true});
+      Stand();
     }
   }
 }

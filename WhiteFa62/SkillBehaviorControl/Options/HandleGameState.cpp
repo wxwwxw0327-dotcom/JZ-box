@@ -47,6 +47,8 @@ option((WhiteFleetSkillBehaviorControl) HandleGameState)
       ArmContact();
       if(theStrategyStatus.role != PositionRole::toRole(PositionRole::goalkeeper))
         ArmObstacleAvoidance();
+      if(handleKickoffReceiverSetup())
+        return;
       if(theSkillRequest.skill == SkillRequest::walk)
         WalkToPointReady({.target = theSkillRequest.target,
                           .reduceWalkSpeedType = theGameState.kickOffSetupFromTouchlines ? ReduceWalkSpeedType::distanceBased : ReduceWalkSpeedType::timeBased}); // TODO maybe more under specific conditions?

@@ -143,7 +143,9 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
       const float stateProgress = static_cast<float>(timeInState) / static_cast<float>(totalStateTime);
       interpolatedRatingThreshold *= (1.f - clip(stateProgress, 0.f, 1.f));
     }
-    isTargetFree = thePassEvaluation.getRating(theFieldBall.recentBallPositionOnField(), lastTargetEvaluation.bestShiftedTargetOnField, false) > std::max(interpolatedRatingThreshold, minRating);
+    const float requiredRating = isFreeKick() ? std::max(ratingThreshold, minRating) :
+      std::max(interpolatedRatingThreshold, minRating);
+    isTargetFree = thePassEvaluation.getRating(theFieldBall.recentBallPositionOnField(), lastTargetEvaluation.bestShiftedTargetOnField, false) > requiredRating;
   };
 
   const auto updateKickParameters = [&]
@@ -247,8 +249,11 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
 
   const auto scaleKickStrength = [&](float& kickLength)
   {
+    if(isFreeKick())
+      return kickLength * 1.15f;
     const float upperKickLength = std::max(forcedMinimalPassKickLength, 3.f * kickLength);
-    const Angle interceptError = Angle::normalize((teammate->pose.translation - theFieldBall.positionRelative).angle() - (lastTargetEvaluation.bestShiftedTargetOnField - theFieldBall.positionRelative).angle());
+    const Vector2f& ball = theFieldBall.positionOnField;
+    const Angle interceptError = Angle::normalize((teammate->pose.translation - ball).angle() - (lastTargetEvaluation.bestShiftedTargetOnField - ball).angle());
     return mapToRange(std::abs(interceptError / 15_deg), 0.f, 1.f, upperKickLength, kickLength);
   };
 
@@ -387,7 +392,8 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
                         .maxPan = maxHeadAngle,
                         .tilt = headTilt,
                         .speed = headSpeed});
-      if(lastTargetEvaluation.isValid && (lastTargetEvaluation.isAngleFree || isFreeKick()))
+      if(lastTargetEvaluation.isValid && lastTargetEvaluation.isAngleFree &&
+         restartPassIsSafe(theFieldBall.positionOnField, lastTargetEvaluation.bestShiftedTargetOnField, playerNumber))
       {
         PassTarget({.passTarget = playerNumber,
                     .ballTarget = theRobotPose.inverse() * lastTargetEvaluation.bestShiftedTargetOnField});
@@ -407,8 +413,8 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
 
     action
     {
-      // Keep the last kick target during a set play.
-      if(state_time == 0 || (!isFreeKick() && !isKickOff()))
+      // Re-evaluate the route as opponents move into the restart's passing lane.
+      if(state_time == 0 || !isKickOff())
       {
         updateKickTarget();
         kickAngle = theRobotPose.rotation + kickAngle;
@@ -418,15 +424,27 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
       // Set the most suitable kick and its parameters, then execute it.
       auto kickType = selectKickType();
 
-      // TODO: Opponents running into the planned trajectory can regularly (unintentionally) block and intercept the ball, because the kick angle is not adjusted in the two'ish seconds it takes the robot to go to the ball and kick.
-      if(lastTargetEvaluation.isValid && (lastTargetEvaluation.isAngleFree || isFreeKick()))
+      const bool safe = lastTargetEvaluation.isValid && lastTargetEvaluation.isAngleFree &&
+        restartPassIsSafe(theFieldBall.positionOnField, lastTargetEvaluation.bestShiftedTargetOnField, playerNumber);
+      if(safe)
         GoToBallAndKick({.targetDirection = Angle::normalize(kickAngle - theRobotPose.rotation),
                          .kickType = kickType,
                          .length = kickLength,
                          .reduceWalkSpeedType = theGameState.isFreeKick() && theFieldBall.positionRelative.squaredNorm() < sqr(ballDistanceForSlowWalk) ? ReduceWalkSpeedType::slow : ReduceWalkSpeedType::noChange});
+      else if(isFreeKick())
+      {
+        theClearTarget.update();
+        if(theClearTarget.isValid && restartKickLaneIsClear(theClearTarget.kickAngle, theClearTarget.kickLength))
+          ClearBall();
+        else
+        {
+          LookActive({.withBall = true});
+          Stand();
+        }
+      }
       else
         DribbleToGoal();
-      if(lastTargetEvaluation.isValid && (lastTargetEvaluation.isAngleFree || isFreeKick()))
+      if(safe)
       {
         PassTarget({.passTarget = playerNumber,
                     .ballTarget = theRobotPose.inverse() * lastTargetEvaluation.bestShiftedTargetOnField});
@@ -503,6 +521,7 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
           (evaluation.bestShiftedTargetOnField-target).norm()<=300.f &&
           !(theSkillRequest.restartPassRequired&&theSkillRequest.restartPassPreparing);
       }
+      safe = safe && restartPassIsSafe(ball, target, playerNumber);
       if(safe)
       {
         const float length=(target-ball).norm();

@@ -22,7 +22,7 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
   fieldBall.endPositionRelative     = BallPhysics::getEndPosition(theBallModel.estimate.position, theBallModel.estimate.velocity, theBallSpecification);
   fieldBall.endPositionOnField      = theRobotPose * fieldBall.endPositionRelative;
   fieldBall.velocityRelative = theBallModel.estimate.velocity;
-  fieldBall.velocityOnField = theRobotPose * fieldBall.velocityRelative;
+  fieldBall.velocityOnField = fieldBall.velocityRelative.rotated(theRobotPose.rotation);
 
   fieldBall.teamBallIsValid = theTeamBallModel.isValid;
   if(theTeamBallModel.isValid)
@@ -31,8 +31,8 @@ void WhiteFleetFieldBallProvider::update(FieldBall& fieldBall)
     fieldBall.teamPositionRelative    = theRobotPose.inverse() * theTeamBallModel.position;
     fieldBall.teamEndPositionOnField  = BallPhysics::getEndPosition(theTeamBallModel.position, theTeamBallModel.velocity, theBallSpecification);
     fieldBall.teamEndPositionRelative = theRobotPose.inverse() * fieldBall.teamEndPositionOnField;
-    fieldBall.teamVelocityOnField = theRobotPose.inverse() * fieldBall.teamVelocityRelative;
-    fieldBall.teamVelocityRelative = theTeamBallModel.velocity;
+    fieldBall.teamVelocityOnField = theTeamBallModel.velocity;
+    fieldBall.teamVelocityRelative = fieldBall.teamVelocityOnField.rotated(-theRobotPose.rotation);
   }
 
   fieldBall.timeSinceBallWasSeen = theFrameInfo.getTimeSince(theBallModel.timeWhenLastSeen);

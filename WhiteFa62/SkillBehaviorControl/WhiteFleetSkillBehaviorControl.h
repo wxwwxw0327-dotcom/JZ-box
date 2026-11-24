@@ -286,6 +286,10 @@ protected:
   bool handleCloseBallSearch();
   bool handlePredictedBallPursuit();
   void lookRoughlyAtBall(const Vector2f& relative);
+  bool handleKeeperShotPositioning();
+  bool handleKickoffReceiverSetup();
+  bool restartPassIsSafe(const Vector2f& ball, const Vector2f& target, int receiver);
+  bool restartKickLaneIsClear(Angle direction, float length);
 
   /**< Clips walk speed near field border. */
   void handleWalkSpeedAtFieldBorder();
