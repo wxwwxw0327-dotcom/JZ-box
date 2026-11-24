@@ -1451,7 +1451,9 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
   }
   Vector2f pressure(theFieldDimensions.xPosOpponentPenaltyMark - 900.f,
                     simulatedKickoffSide * std::min(1000.f, theFieldDimensions.yPosLeftGoal));
-  if(simulatedKickoffReleased && ballSeen && ball.x() > pressure.x())
+  const bool reboundBehind = ballSeen && ball.x() > center.x() + 1000.f &&
+    ball.x() < theRobotPose.translation.x();
+  if(simulatedKickoffReleased && ballSeen && (ball.x() > pressure.x() || reboundBehind))
     pressure = Vector2f(std::min(ball.x() - 550.f, theFieldDimensions.xPosOpponentGoalLine - 600.f), ball.y());
   if(halfClosed)
     pressure.x() = center.x() - theFieldDimensions.fieldLinesWidth * .5f - theBehaviorParameters.illegalAreasLargeDistance;
