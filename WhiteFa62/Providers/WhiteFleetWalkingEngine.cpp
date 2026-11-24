@@ -22,40 +22,32 @@ WhiteFleetWalkingEngine::WhiteFleetWalkingEngine():
 {
   compile();
 
-  // ===================== MDFZ SPEED UP (1.20x) =====================
-  // 从 v33 搬回来的冲刺档: 仿真兑现率高, 目标 ~2.4 m/s.
+  // Platform match movement speed, scaled once when this module is created.
   {
-    const float gSpeed = 1.20f;   // 步幅与速度上限倍数
-    const float gAccel = 1.45f;   // 加减速上限倍数
-    const float gFreq = 1.10f;    // 步频倍数
-
-    configuredParameters.fastWalkSpeed.maxSpeed.translation.x() *= gSpeed;
-    configuredParameters.fastWalkSpeed.maxSpeed.translation.y() *= gSpeed;
-    configuredParameters.fastWalkSpeed.maxSpeed.rotation *= gSpeed;
-    configuredParameters.fastWalkSpeed.maxSpeedBackwards *= gSpeed;
-    configuredParameters.maxPossibleSpeed.maxSpeed.translation.x() *= gSpeed;
-    configuredParameters.maxPossibleSpeed.maxSpeed.translation.y() *= gSpeed;
-    configuredParameters.maxPossibleSpeed.maxSpeed.rotation *= gSpeed;
-    configuredParameters.maxPossibleSpeed.maxSpeedBackwards *= gSpeed;
-    configuredParameters.maxSideAtMaxForward *= gSpeed;
-    configuredParameters.maxForwardAtMaxSide *= gSpeed;
-
-    commonSpeedParameters.maxAcceleration *= gAccel;
-    commonSpeedParameters.maxDeceleration *= gAccel;
-
-    frequencyParametersWalk.base *= gFreq;
-
-    commonSpeedParameters.xTargetScaling.walkSpeed.min *= gSpeed;
-    commonSpeedParameters.xTargetScaling.walkSpeed.max = std::max(commonSpeedParameters.xTargetScaling.walkSpeed.max * gSpeed, configuredParameters.fastWalkSpeed.maxSpeed.translation.x());
-    commonSpeedParameters.yTargetScaling.walkSpeed.min *= gSpeed;
-    commonSpeedParameters.yTargetScaling.walkSpeed.max = std::max(commonSpeedParameters.yTargetScaling.walkSpeed.max * gSpeed, configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
-
-    stepSizeParameters.reduceTranslationFromRotationBaseOffset *= Angle(1.15f);
-    stepSizeParameters.noTranslationFromRotationThreshold *= Angle(1.15f);
-    stepSizeParameters.reduceTranslationFromRotationBaseFastOffset *= Angle(1.15f);
-    stepSizeParameters.noTranslationFromRotationFastThreshold *= Angle(1.15f);
+    constexpr float speedScale = 1.2f;
+    configuredParameters.fastWalkSpeed.maxSpeed.translation *= speedScale;
+    configuredParameters.fastWalkSpeed.maxSpeed.rotation *= speedScale;
+    configuredParameters.fastWalkSpeed.maxSpeedBackwards *= speedScale;
+    configuredParameters.normalWalkSpeed.maxSpeed.translation *= speedScale;
+    configuredParameters.normalWalkSpeed.maxSpeed.rotation *= speedScale;
+    configuredParameters.normalWalkSpeed.maxSpeedBackwards *= speedScale;
+    configuredParameters.slowWalkSpeed.maxSpeed.translation *= speedScale;
+    configuredParameters.slowWalkSpeed.maxSpeed.rotation *= speedScale;
+    configuredParameters.slowWalkSpeed.maxSpeedBackwards *= speedScale;
+    configuredParameters.maxPossibleSpeed.maxSpeed.translation *= speedScale;
+    configuredParameters.maxPossibleSpeed.maxSpeed.rotation *= speedScale;
+    configuredParameters.maxPossibleSpeed.maxSpeedBackwards *= speedScale;
+    configuredParameters.maxSideAtMaxForward *= speedScale;
+    configuredParameters.maxForwardAtMaxSide *= speedScale;
+    commonSpeedParameters.xTargetScaling.walkSpeed.min *= speedScale;
+    commonSpeedParameters.xTargetScaling.walkSpeed.max = std::max(
+      commonSpeedParameters.xTargetScaling.walkSpeed.max * speedScale,
+      configuredParameters.fastWalkSpeed.maxSpeed.translation.x());
+    commonSpeedParameters.yTargetScaling.walkSpeed.min *= speedScale;
+    commonSpeedParameters.yTargetScaling.walkSpeed.max = std::max(
+      commonSpeedParameters.yTargetScaling.walkSpeed.max * speedScale,
+      configuredParameters.fastWalkSpeed.maxSpeed.translation.y());
   }
-  // =================== MDFZ SPEED UP END ===================
 
   boosterJoints = { Joints::lHipPitch,
                     Joints::lHipRoll,
