@@ -11,21 +11,10 @@
 #include "Tools/Modeling/Obstacle.h"
 #include "WhiteFleetMatchTacticalRepair.h"
 #include "WhiteFleetShotPlacement.h"
-#include "Streaming/Global.h"
 #include "WhiteFleetK1V21MatchProfile.h"
 #include "Platform/SystemCall.h"
-#include <cstdio>
 
 MAKE_MODULE(WhiteFleetKickAtGoalEvaluationProvider);
-
-/** Shot placement (fyan 3ea0cb4d): sim on unless MDFZ_SHOT_PLACEMENT_ENABLE=0 (any team);
- *  real robot only inside the guarded match profile, like the other match features. */
-static bool shotPlacementAllowed()
-{
-  if(SystemCall::getMode() == SystemCall::physicalRobot)
-    return WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver();
-  return true; // Platform equivalent of the upstream default-enabled switch.
-}
 
 WhiteFleetKickAtGoalEvaluationProvider::WhiteFleetKickAtGoalEvaluationProvider() :
   leftGoalPost(theFieldDimensions.xPosOpponentGoalPost, theFieldDimensions.yPosLeftGoal),
@@ -85,11 +74,8 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
     Angle kickDirection = 0_deg;
     const Angle mostOptimalGoalDirectionInField = (Vector2f(theFieldDimensions.xPosOpponentGoalLine, 0.f) - theFieldBall.positionOnField).angle();
     std::list<SectorWheel::Sector> sectorsOriginal;
-    bool placementOffCenter = false;
-    float placementClearance = 0.f;
-    Angle placementDirection = 0_deg;
     const bool threePoint = SystemCall::getMode() == SystemCall::simulatedRobot;
-    const bool placementOn = shotPlacement && shotPlacementAllowed();
+    const bool placementOn = SystemCall::getMode() != SystemCall::physicalRobot || WhiteFleetK1V21MatchProfile::guardedPhysicalReceiver();
     const Angle uncertainty = threePoint ? std::min(kickInaccuracy, Angle(3_deg)) : kickInaccuracy;
     float bestPlacementScore = -std::numeric_limits<float>::max();
     std::vector<WhiteFleetShotPlacement::Blocker> blockers;
@@ -256,16 +242,7 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
           if(threePoint && (!placement.placed || placement.score <= bestPlacementScore))
             continue;
           if(threePoint)
-          {
             bestPlacementScore = placement.score;
-            placementOffCenter = false;
-          }
-          if(placement.placed && std::abs(Angle::normalize(placement.direction - mostOptimalGoalDirectionInField)) > 3_deg)
-          {
-            placementOffCenter = true;
-            placementClearance = placement.clearance;
-            placementDirection = placement.direction;
-          }
           if(theGameState.isFreeKick() && !threePoint)
             kickAngleInField = (kickAngleInField + searchRange.getCenter()) / 2.f;
           kickDirection = kickAngleInField - theRobotPose.rotation;
@@ -291,16 +268,7 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
           if(threePoint && (!placement.placed || placement.score <= bestPlacementScore))
             continue;
           if(threePoint)
-          {
             bestPlacementScore = placement.score;
-            placementOffCenter = false;
-          }
-          if(placement.placed && std::abs(Angle::normalize(placement.direction - mostOptimalGoalDirectionInField)) > 3_deg)
-          {
-            placementOffCenter = true;
-            placementClearance = placement.clearance;
-            placementDirection = placement.direction;
-          }
           if(theGameState.isFreeKick() && !threePoint)
             kickAngleInField = (kickAngleInField + searchRange.getCenter()) / 2.f;
           kickDirection = kickAngleInField - theRobotPose.rotation;
@@ -310,11 +278,6 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
         }
       }
     }
-
-    if(theKickAtGoalEvaluation.kickInfo.isValid && placementOffCenter && !lastPlacementOffCenter)
-      std::printf("MDFZ_SHOT_PLACEMENT team=%d dir_deg=%.1f clearance_mm=%.0f\n",
-                  Global::getSettings().teamNumber, placementDirection.toDegrees(), placementClearance);
-    lastPlacementOffCenter = placementOffCenter;
 
     if(theKickAtGoalEvaluation.kickInfo.isValid)
     {

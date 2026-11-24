@@ -63,8 +63,6 @@ public:
   void update(KickAtGoalEvaluation& theKickAtGoalEvaluation) override;
 
 private:
-  // The platform supplies the original provider cfg without this new field.
-  static constexpr bool shotPlacement = true;
 
   struct WhiteFleetObstacleSector
   {
@@ -76,7 +74,6 @@ private:
   bool wasValidLastFrame = false;
   bool wasUpdatedLastFrame = false; /**< Was the module called last frame? */
   bool aimingAtGoal = false; /**< Whether the robot is able to score a goal in the current state. */
-  bool lastPlacementOffCenter = false; /**< Whether the previous frame aimed away from the goal centre on purpose. */
   Vector2f goalLineIntersection = Vector2f::Zero(); /**< The point where the ball would have intersected the goal line according to the current plan. */
 
   const Vector2f leftGoalPost; /**< The position of the left post of the opponent's goal. */

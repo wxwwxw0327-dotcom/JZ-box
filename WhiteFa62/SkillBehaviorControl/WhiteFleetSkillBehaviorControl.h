@@ -302,6 +302,9 @@ protected:
   bool handleCloseBallSearch();
   bool handlePredictedBallPursuit();
   void lookRoughlyAtBall(const Vector2f& relative);
+  struct BehaviorBall { Vector2f position = Vector2f::Zero(), velocity = Vector2f::Zero(); bool known = false, motionFresh = false; };
+  bool simulatedMovementAllowed() const;
+  BehaviorBall recentBehaviorBall(unsigned ownAge, unsigned epoch, bool peers) const;
   bool handleKeeperShotPositioning();
   bool handleOpponentRestartDefense();
 
