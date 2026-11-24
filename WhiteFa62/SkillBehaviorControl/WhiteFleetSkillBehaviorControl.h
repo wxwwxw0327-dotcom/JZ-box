@@ -249,6 +249,11 @@ private:
   bool autonomousRunOnlyThisFrame=false;
   unsigned autonomousKickoffObservedEvent=0;
   void maintainAutonomousKickoffContext(bool retireActive);
+  void updateSimulatedOwnKickoff();
+  GameState::State simulatedKickoffState = GameState::beforeHalf;
+  unsigned simulatedKickoffStart = 0;
+  unsigned simulatedKickoffKickAtStart = 0;
+  bool simulatedKickoffPending = false;
   bool handleKickerPostKickHold(); // 2026-11-10: kicker never plays its own kickoff pass again for 10 s
   void publishAutonomousKickoffIntent();
   Vector2f prepareAutonomousKickoffSupport(Vector2f desired);
@@ -263,6 +268,7 @@ protected:
   int autonomousReceiver=-1;
   /** Executes the skill request. */
   void executeRequest();
+  bool handleSimulatedOwnKickoff();
 
   /**< Clips walk speed near field border. */
   void handleWalkSpeedAtFieldBorder();
