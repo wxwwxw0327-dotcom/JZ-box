@@ -15,6 +15,7 @@
 #include "WhiteFleetMatchTacticalRepair.h"
 #include "WhiteFleetC15KickoffSwitch.h"
 #include "WhiteFleetAutonomousKickoff.h"
+#include "WhiteFleetRestartDefense.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include "Platform/SystemCall.h"
 #include "Streaming/TypeRegistry.h"
@@ -332,6 +333,172 @@ bool WhiteFleetSkillBehaviorControl::handleRestartReceive()
       ReceivePass({.playerNumber=peer.number});return true;
     }
   return false;
+}
+
+bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
+{
+  const bool restart = theGameState.isForOpponentTeam() && theGameState.isFreeKick() && !theGameState.isGoalKick();
+  if(!restart)
+  {
+    opponentRestartDefense = {};
+    return false;
+  }
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || theGameState.isGoalkeeper() ||
+     theGameState.playerState != GameState::active || theGameState.stopped || theGameControllerData.stopped ||
+     theBehaviorStateInformation.remoteControlActive || WhiteFleetBoosterPickupControl::held() ||
+     WhiteFleetBoosterRemoteStand::held() || theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
+     theFallDownState.state != FallDownState::upright ||
+     (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
+     !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor)
+    return false;
+
+  const unsigned now = theFrameInfo.time;
+  if(!opponentRestartDefense.active || opponentRestartDefense.state != theGameState.state ||
+     opponentRestartDefense.epoch != theGameState.timeWhenStateStarted)
+  {
+    opponentRestartDefense = {};
+    opponentRestartDefense.active = true;
+    opponentRestartDefense.state = theGameState.state;
+    opponentRestartDefense.epoch = theGameState.timeWhenStateStarted;
+  }
+  if(opponentRestartDefense.released)
+    return false;
+
+  Vector2f ball = Vector2f::Zero(), velocity = Vector2f::Zero();
+  bool observed = false;
+  if(TeamActivityPolicy::fresh(now, theBallModel.timeWhenLastSeen, 300u) &&
+     theBallModel.timeWhenLastSeen >= opponentRestartDefense.epoch && theFieldBall.ballWasSeen(300) &&
+     theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite())
+  {
+    ball = theFieldBall.positionOnField;
+    velocity = theBallModel.estimate.velocity.rotated(theRobotPose.rotation);
+    observed = true;
+  }
+  else if(theTeamBallModel.isValid && theTeamBallModel.position.allFinite() && theTeamBallModel.velocity.allFinite())
+  {
+    ball = theTeamBallModel.position;
+    velocity = theTeamBallModel.velocity;
+    observed = true;
+  }
+  else
+  {
+    unsigned newest = 0;
+    for(const Teammate& peer : theTeamData.teammates)
+      if(peer.number >= Settings::lowestValidPlayerNumber && peer.number <= Settings::highestValidPlayerNumber &&
+         peer.number != theGameState.playerNumber && peer.theRobotStatus.isUpright &&
+         theGameState.ownTeam.playerStates[peer.number - Settings::lowestValidPlayerNumber] == GameState::active &&
+         peer.theRobotPose.isFinite() && peer.theRobotPose.quality != RobotPose::poor &&
+         TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 700u) &&
+         TeamActivityPolicy::fresh(now, peer.theBallModel.timeWhenLastSeen, 700u) &&
+         peer.theBallModel.timeWhenLastSeen >= opponentRestartDefense.epoch &&
+         peer.theBallModel.timeWhenLastSeen <= peer.theFrameInfo.time && peer.theBallModel.timeWhenLastSeen > newest &&
+         peer.theBallModel.estimate.position.allFinite() && peer.theBallModel.estimate.velocity.allFinite())
+      {
+        ball = peer.theRobotPose * peer.theBallModel.estimate.position;
+        velocity = peer.theBallModel.estimate.velocity.rotated(peer.theRobotPose.rotation);
+        BallPhysics::propagateBallPositionAndVelocity(ball, velocity, (now - peer.theFrameInfo.time) * .001f, theBallSpecification);
+        newest = peer.theBallModel.timeWhenLastSeen;
+        observed = true;
+      }
+  }
+  if(!observed)
+  {
+    if(!opponentRestartDefense.anchored || now < opponentRestartDefense.observed ||
+       now - opponentRestartDefense.observed > 1200u)
+      return false;
+    ball = opponentRestartDefense.ball;
+  }
+  const bool corner = theGameState.isCornerKick();
+  if(!ball.allFinite() || !velocity.allFinite() ||
+     ball.x() < theFieldDimensions.xPosOwnGoalLine - 300.f ||
+     ball.x() > theFieldDimensions.xPosOpponentGoalLine + 300.f ||
+     std::abs(ball.y()) > theFieldDimensions.yPosLeftTouchline + 300.f ||
+     (!corner && ball.x() >= theFieldDimensions.xPosHalfwayLine) ||
+     (corner && (ball.x() > theFieldDimensions.xPosOwnGoalLine + 2000.f ||
+                 std::abs(ball.y()) < theFieldDimensions.yPosLeftTouchline - 2500.f)))
+    return false;
+  // Do not follow the old restart layout into live play or replace a native save.
+  if(theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath ||
+     (observed && velocity.norm() > 600.f))
+  {
+    opponentRestartDefense.released = true;
+    return false;
+  }
+  if(observed)
+  {
+    opponentRestartDefense.ball = ball;
+    opponentRestartDefense.observed = now;
+    opponentRestartDefense.anchored = true;
+  }
+
+  // Fixed jersey order needs no ACK. A lone available defender covers goal.
+  std::vector<int> defenders;
+  for(int number = Settings::lowestValidPlayerNumber; number <= Settings::highestValidPlayerNumber; ++number)
+  {
+    if(theGameState.ownTeam.isGoalkeeper(number) ||
+       theGameState.ownTeam.playerStates[number - Settings::lowestValidPlayerNumber] != GameState::active)
+      continue;
+    const auto peer = std::find_if(theTeamData.teammates.begin(), theTeamData.teammates.end(),
+      [&](const Teammate& teammate) { return teammate.number == number; });
+    if(number != theGameState.playerNumber && peer != theTeamData.teammates.end() &&
+       TeamActivityPolicy::fresh(now, peer->theFrameInfo.time, 1200u) &&
+       (!peer->theRobotStatus.isUpright || peer->theRobotPose.quality == RobotPose::poor))
+      continue;
+    defenders.push_back(number);
+  }
+  if(defenders.empty() || (theGameState.playerNumber != defenders.front() &&
+     (defenders.size() < 2 || theGameState.playerNumber != defenders[1])))
+    return false;
+  const bool pass = defenders.size() > 1 && theGameState.playerNumber == defenders.front();
+  const float keepAway = theFieldDimensions.centerCircleRadius + 400.f;
+  const Vector2f goal(theFieldDimensions.xPosOwnGoalLine, 0.f);
+  const float side = ball.y() < 0.f ? -1.f : 1.f;
+  // If the receiver is unseen, screen the central/far-side penalty-area entrance.
+  Vector2f receiver(theFieldDimensions.xPosOwnPenaltyArea + 700.f,
+                    -side * std::min(2000.f, theFieldDimensions.yPosLeftTouchline * .3f));
+  float best = std::numeric_limits<float>::max();
+  for(const auto& opponent : theGlobalOpponentsModel.opponents)
+  {
+    if(opponent.unidentified || !opponent.position.allFinite() ||
+       opponent.position.x() < theFieldDimensions.xPosOwnGoalLine - 300.f ||
+       opponent.position.x() > theFieldDimensions.xPosHalfwayLine + 2000.f ||
+       std::abs(opponent.position.y()) > theFieldDimensions.yPosLeftTouchline + 300.f ||
+       (opponent.position - ball).norm() < keepAway + 600.f)
+      continue; // Excludes the taker and the distant opponent goalkeeper.
+    const float rating = (opponent.position - goal).norm() + .2f * (opponent.position - ball).norm();
+    if(rating < best)
+    {
+      best = rating;
+      receiver = opponent.position;
+    }
+  }
+  const auto legal = [&](const Vector2f& target)
+  {
+    return !theIllegalAreas.isPositionIllegal(target, 250.f);
+  };
+  const auto layout = WhiteFleetRestartDefense::plan(ball, receiver, theFieldDimensions.xPosOwnGoalLine,
+    theFieldDimensions.xPosOpponentGoalLine, theFieldDimensions.yPosLeftTouchline, keepAway, legal);
+  const auto& requested = pass ? layout.pass : layout.shot;
+  const auto& other = pass ? layout.shot : layout.pass;
+  if(!requested)
+    return false;
+  if(!opponentRestartDefense.updated || now < opponentRestartDefense.updated ||
+     now - opponentRestartDefense.updated > 250u || pass != opponentRestartDefense.pass ||
+     (*requested - opponentRestartDefense.target).squaredNorm() > sqr(150.f) ||
+     !legal(opponentRestartDefense.target) || (opponentRestartDefense.target - ball).norm() < keepAway ||
+     (other && (opponentRestartDefense.target - *other).norm() < 1000.f))
+    opponentRestartDefense.target = *requested;
+  opponentRestartDefense.pass = pass;
+  opponentRestartDefense.updated = now;
+  const Vector2f relative = theRobotPose.inverse() * opponentRestartDefense.target;
+  const bool near = relative.norm() < 1200.f;
+  const Angle facing = near ? Angle::normalize((ball - opponentRestartDefense.target).angle() - theRobotPose.rotation) :
+    relative.angle();
+  WalkToPointObstacle({.target = Pose2f(facing, relative), .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
+                      .disableAligning = near,
+                      .sideWalkingRequest = near ? SideWalkingRequest::allowed : SideWalkingRequest::notAllowed});
+  lookRoughlyAtBall(theRobotPose.inverse() * ball);
+  return true;
 }
 
 bool WhiteFleetSkillBehaviorControl::handleKeeperShotPositioning()

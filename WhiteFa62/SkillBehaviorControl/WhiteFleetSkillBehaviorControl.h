@@ -273,6 +273,13 @@ private:
     Vector2f target = Vector2f::Zero();
     bool shot = false;
   } keeperPositioning;
+  struct OpponentRestartDefense
+  {
+    bool active = false, anchored = false, released = false, pass = false;
+    GameState::State state = GameState::beforeHalf;
+    unsigned epoch = 0, observed = 0, updated = 0;
+    Vector2f ball = Vector2f::Zero(), target = Vector2f::Zero();
+  } opponentRestartDefense;
   void observeCloseBall();
   bool handleKickerPostKickHold(); // 2026-11-10: kicker never plays its own kickoff pass again for 10 s
   void publishAutonomousKickoffIntent();
@@ -293,6 +300,7 @@ protected:
   bool handlePredictedBallPursuit();
   void lookRoughlyAtBall(const Vector2f& relative);
   bool handleKeeperShotPositioning();
+  bool handleOpponentRestartDefense();
 
   /**< Clips walk speed near field border. */
   void handleWalkSpeedAtFieldBorder();
