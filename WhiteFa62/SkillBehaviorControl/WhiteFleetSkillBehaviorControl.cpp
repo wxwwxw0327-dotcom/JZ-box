@@ -1286,17 +1286,17 @@ bool WhiteFleetSkillBehaviorControl::handleGoalKickObservation()
 
 void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
 {
-  // The playing option can be preempted on the transition frame. Observe the
-  // referee state here so the kicker can resume within the same kickoff window.
   const auto state = theGameState.state;
   const auto previous = simulatedKickoffState;
   simulatedKickoffState = state;
-  const bool designatedKicker = SystemCall::getMode() == SystemCall::simulatedRobot &&
-    WhiteFleetAutonomousKickoff::isKicker(theGameState.playerNumber) && !theGameState.isGoalkeeper();
-  if(!designatedKicker || theGameState.playerState != GameState::active ||
-     theGameState.isPenaltyShootout() || theGameControllerData.setPlay != SET_PLAY_NONE)
+  const bool kicker = WhiteFleetAutonomousKickoff::isKicker(theGameState.playerNumber);
+  const bool receiver = WhiteFleetAutonomousKickoff::isReceiver(theGameState.playerNumber);
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || (!kicker && !receiver) ||
+     theGameState.isGoalkeeper() || theGameState.playerState != GameState::active ||
+     theGameState.isPenaltyShootout() || theGameControllerData.setPlay != SET_PLAY_NONE ||
+     (state != GameState::ownKickOff && state != GameState::playing))
   {
-    simulatedKickoffPending = false;
+    simulatedKickoffPending = simulatedKickoffFormation = false;
     return;
   }
 
@@ -1306,35 +1306,82 @@ void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
     const bool flatOwnKickoff = state == GameState::playing && fromOwnSetup &&
       theGameControllerData.state == STATE_PLAYING &&
       theGameControllerData.kickingTeam == Global::getSettings().teamNumber;
-    simulatedKickoffPending = state == GameState::ownKickOff || flatOwnKickoff;
-    if(simulatedKickoffPending)
+    const bool begin = state == GameState::ownKickOff || flatOwnKickoff;
+    const bool releasedOwnKickoff = previous == GameState::ownKickOff && state == GameState::playing;
+    if(begin)
     {
       simulatedKickoffStart = theGameState.timeWhenStateStarted;
       simulatedKickoffKickAtStart = theMotionInfo.lastKickTimestamp;
-      if(state == GameState::ownKickOff)
+      simulatedKickoffPending = kicker;
+      simulatedKickoffFormation = true;
+      simulatedKickoffReleased = false;
+      simulatedKickoffKickedAt = 0;
+      float receiverY = receiver ? theRobotPose.translation.y() : theBehaviorParameters.c15FixedReceiveBallY;
+      if(kicker)
       {
-        // The normal post-kick hold needs a baseline taken before the first kick.
+        for(const auto& peer : theGlobalTeammatesModel.teammates)
+          if(peer.playerNumber == WhiteFleetAutonomousKickoff::receiverNumber && peer.pose.isFinite())
+            receiverY = peer.pose.translation.y();
+        for(const Teammate& peer : theTeamData.teammates)
+          if(peer.number == WhiteFleetAutonomousKickoff::receiverNumber && peer.theRobotPose.isFinite() &&
+             TeamActivityPolicy::fresh(theFrameInfo.time, peer.theFrameInfo.time, 1200u))
+            receiverY = peer.theRobotPose.translation.y();
+      }
+      simulatedKickoffSide = receiverY < 0.f ? -1.f : 1.f;
+      if(kicker && state == GameState::ownKickOff)
+      {
         kickerHoldEvent = simulatedKickoffStart;
         kickerKickAt = 0;
         kickerHoldBaseline = simulatedKickoffKickAtStart;
       }
     }
+    else if(!releasedOwnKickoff)
+      simulatedKickoffPending = simulatedKickoffFormation = false;
   }
 
-  constexpr unsigned flatKickoffWindowMs = 8000;
   const unsigned now = theFrameInfo.time;
-  if(simulatedKickoffPending &&
-     (theGameState.timeWhenStateStarted != simulatedKickoffStart || now < simulatedKickoffStart ||
-      theMotionInfo.lastKickTimestamp > simulatedKickoffKickAtStart ||
-      (state == GameState::ownKickOff ? now >= theGameState.timeWhenStateEnds :
-       now - simulatedKickoffStart >= flatKickoffWindowMs)))
+  if(!simulatedKickoffFormation || now < simulatedKickoffStart)
+  {
+    simulatedKickoffPending = simulatedKickoffFormation = false;
+    return;
+  }
+  if(kicker && theMotionInfo.lastKickTimestamp > simulatedKickoffKickAtStart &&
+     theMotionInfo.lastKickTimestamp >= simulatedKickoffStart)
+  {
+    simulatedKickoffKickedAt = theMotionInfo.lastKickTimestamp;
+    simulatedKickoffReleased = true;
     simulatedKickoffPending = false;
+  }
+  if(receiver)
+    for(const Teammate& peer : theTeamData.teammates)
+      if(peer.number == WhiteFleetAutonomousKickoff::kickerNumber &&
+         TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 1200u) &&
+         peer.theIndirectKick.lastKickTimestamp > simulatedKickoffStart &&
+         peer.theIndirectKick.lastKickTimestamp <= peer.theFrameInfo.time)
+        simulatedKickoffReleased = true;
+
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const Vector2f center(theFieldDimensions.xPosHalfwayLine, 0.f);
+  if(seen && seen <= now && now - seen <= 300u && theFieldBall.ballWasSeen(300) &&
+     theFieldBall.positionOnField.allFinite() &&
+     (theFieldBall.positionOnField - center).squaredNorm() > sqr(600.f))
+  {
+    simulatedKickoffReleased = true;
+    simulatedKickoffPending = false;
+  }
+  const bool expired = state == GameState::ownKickOff ? now >= theGameState.timeWhenStateEnds :
+    now - simulatedKickoffStart >= 8000u;
+  if(!simulatedKickoffReleased && expired)
+    simulatedKickoffPending = simulatedKickoffFormation = false;
+  if(simulatedKickoffReleased && kicker &&
+     theGameState.ownTeam.playerStates[WhiteFleetAutonomousKickoff::receiverNumber - Settings::lowestValidPlayerNumber] != GameState::active)
+    simulatedKickoffFormation = false;
 }
 
 bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
 {
-  if(!simulatedKickoffPending || theGameControllerData.state != STATE_PLAYING ||
-     theGameControllerData.kickingTeam != Global::getSettings().teamNumber ||
+  if(!simulatedKickoffFormation || theGameControllerData.state != STATE_PLAYING ||
+     (!simulatedKickoffReleased && theGameControllerData.kickingTeam != Global::getSettings().teamNumber) ||
      theGameState.stopped || theGameControllerData.stopped || theBehaviorStateInformation.remoteControlActive ||
      WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
      theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
@@ -1349,29 +1396,72 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
   const Vector2f& ball = theFieldBall.positionOnField;
   const bool ballSeen = seen && seen <= now && now - seen <= 300 && theFieldBall.ballWasSeen(300) &&
     ball.allFinite() && theFieldBall.positionRelative.allFinite();
-  if(ballSeen)
+  if(simulatedKickoffPending)
   {
-    if((ball - center).squaredNorm() > sqr(600.f))
+    if(ballSeen)
     {
-      simulatedKickoffPending = false;
-      return false;
+      // Freeze the side at kickoff, so the approaching foot does not change aim
+      // when the receiver crosses the centre line or a later team packet arrives.
+      const float postMargin = theFieldDimensions.goalPostRadius + theBallSpecification.radius + 450.f;
+      const float offset = std::min(600.f, std::max(0.f, theFieldDimensions.yPosLeftGoal - postMargin));
+      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine, simulatedKickoffSide * offset);
+      GoToBallAndKick({.targetDirection = Angle::normalize((aim - ball).angle() - theRobotPose.rotation),
+                       .kickType = KickInfo::rlKickStrong});
     }
-    const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine, 0.f);
-    GoToBallAndKick({.targetDirection = Angle::normalize((aim - ball).angle() - theRobotPose.rotation),
-                     .kickType = KickInfo::rlKickStrong});
-  }
-  else
-  {
-    // Aim the camera at the restart spot without giving the motion engine an
-    // invented ball position. Turn in place if the spot is outside the head's view.
-    const Vector2f centerRelative = theRobotPose.inverse() * center;
-    const Angle turn = centerRelative.angle();
-    if(std::abs(turn) > 45_deg)
-      WalkToPoint({.target = Pose2f(turn, Vector2f::Zero())});
     else
-      Stand();
-    LookAtPoint({.target = {centerRelative.x(), centerRelative.y(), theBallSpecification.radius}});
+    {
+      const Vector2f centerRelative = theRobotPose.inverse() * center;
+      const Angle turn = centerRelative.angle();
+      if(std::abs(turn) > 45_deg)
+        WalkToPoint({.target = Pose2f(turn, Vector2f::Zero())});
+      else
+        Stand();
+      LookAtPoint({.target = {centerRelative.x(), centerRelative.y(), theBallSpecification.radius}});
+    }
+    return true;
   }
+
+  const bool kicker = WhiteFleetAutonomousKickoff::isKicker(theGameState.playerNumber);
+  if(kicker)
+  {
+    // Let the first kick finish before requesting the midfield support position.
+    if(simulatedKickoffKickedAt && now - simulatedKickoffKickedAt < 400u)
+      return false;
+    autonomousRunOnlyThisFrame = true;
+    const Vector2f support(center.x() - 500.f, -simulatedKickoffSide * 600.f);
+    const Vector2f relative = theRobotPose.inverse() * support;
+    if(relative.squaredNorm() < sqr(150.f) || (ballSeen && theFieldBall.positionRelative.squaredNorm() < sqr(1000.f)))
+      Stand();
+    else
+      WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), relative),
+                          .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
+                          .targetOfInterest = theFieldBall.recentBallPositionRelative()});
+    LookActive({.withBall = true});
+    return true;
+  }
+
+  const bool halfClosed = theGameState.state == GameState::ownKickOff &&
+    (theIllegalAreas.illegal & (1u << IllegalAreas::opponentHalf));
+  if(simulatedKickoffReleased && !halfClosed && ballSeen &&
+     theFieldBall.positionRelative.squaredNorm() < sqr(1600.f))
+  {
+    // Native shooting evaluates the current opening and can dribble if blocked.
+    KickAtGoal();
+    return true;
+  }
+  Vector2f pressure(theFieldDimensions.xPosOpponentPenaltyMark - 900.f,
+                    simulatedKickoffSide * std::min(1000.f, theFieldDimensions.yPosLeftGoal));
+  if(simulatedKickoffReleased && ballSeen && ball.x() > pressure.x())
+    pressure = Vector2f(std::min(ball.x() - 550.f, theFieldDimensions.xPosOpponentGoalLine - 600.f), ball.y());
+  if(halfClosed)
+    pressure.x() = center.x() - theFieldDimensions.fieldLinesWidth * .5f - theBehaviorParameters.illegalAreasLargeDistance;
+  pressure.y() = std::clamp(pressure.y(), theFieldDimensions.yPosRightTouchline + 700.f,
+                           theFieldDimensions.yPosLeftTouchline - 700.f);
+  autonomousRunOnlyThisFrame = true;
+  WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * pressure),
+                      .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
+                      .targetOfInterest = theFieldBall.recentBallPositionRelative()});
+  LookActive({.withBall = true});
   return true;
 }
 

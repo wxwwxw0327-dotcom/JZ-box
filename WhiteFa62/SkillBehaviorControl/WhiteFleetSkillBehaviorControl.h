@@ -254,6 +254,10 @@ private:
   unsigned simulatedKickoffStart = 0;
   unsigned simulatedKickoffKickAtStart = 0;
   bool simulatedKickoffPending = false;
+  bool simulatedKickoffFormation = false;
+  bool simulatedKickoffReleased = false;
+  unsigned simulatedKickoffKickedAt = 0;
+  float simulatedKickoffSide = 1.f;
   bool handleKickerPostKickHold(); // 2026-11-10: kicker never plays its own kickoff pass again for 10 s
   void publishAutonomousKickoffIntent();
   Vector2f prepareAutonomousKickoffSupport(Vector2f desired);
