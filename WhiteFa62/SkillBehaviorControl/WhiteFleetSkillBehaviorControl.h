@@ -258,6 +258,16 @@ private:
   bool simulatedKickoffReleased = false;
   unsigned simulatedKickoffKickedAt = 0;
   float simulatedKickoffSide = 1.f;
+  struct CloseBallSearch
+  {
+    unsigned seen = 0, consumedSeen = 0, started = 0;
+    Vector2f ballInOdometry = Vector2f::Zero();
+    Vector2f velocityInOdometry = Vector2f::Zero();
+    Pose2f startOdometry;
+    Angle turn = 0_deg;
+  } closeBallSearch;
+  bool closeBallSearchVisited = false;
+  void observeCloseBall();
   bool handleKickerPostKickHold(); // 2026-11-10: kicker never plays its own kickoff pass again for 10 s
   void publishAutonomousKickoffIntent();
   Vector2f prepareAutonomousKickoffSupport(Vector2f desired);
@@ -273,6 +283,9 @@ protected:
   /** Executes the skill request. */
   void executeRequest();
   bool handleSimulatedOwnKickoff();
+  bool handleCloseBallSearch();
+  bool handlePredictedBallPursuit();
+  void lookRoughlyAtBall(const Vector2f& relative);
 
   /**< Clips walk speed near field border. */
   void handleWalkSpeedAtFieldBorder();

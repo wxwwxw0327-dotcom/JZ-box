@@ -135,6 +135,8 @@ void WhiteFleetSkillBehaviorControl::update(ActivationGraph&)
   physicalPickupVisited = false;
   postKickPlayingVisited = false;
   updateSimulatedOwnKickoff();
+  closeBallSearchVisited = false;
+  observeCloseBall();
   beginFrame(theFrameInfo.time);
   // The process-wide commissioning flag is set before Robot construction and
   // cannot be overridden by scenario, robot configuration, or remote buttons.
@@ -147,6 +149,8 @@ void WhiteFleetSkillBehaviorControl::update(ActivationGraph&)
   else
     execute(root);
   endFrame();
+  if(!closeBallSearchVisited)
+    closeBallSearch = {};
   maintainAutonomousKickoffContext(true); // Retire private intent on hard preemption; never overwrite manual motion.
   if(WhiteFleetMatchTacticalRepair::enabled(theBehaviorParameters.matchTacticalRepair) && postKickPlayingVisited &&
      theGameState.isPlaying() && !theGameState.stopped && theGameState.playerState==GameState::active && theGameState.isGoalkeeper() &&
@@ -328,6 +332,191 @@ bool WhiteFleetSkillBehaviorControl::handleRestartReceive()
       ReceivePass({.playerNumber=peer.number});return true;
     }
   return false;
+}
+
+void WhiteFleetSkillBehaviorControl::observeCloseBall()
+{
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || theGameState.state != GameState::playing ||
+     theGameState.isGoalkeeper() || theGameState.playerState != GameState::active ||
+     theGameState.stopped || theGameControllerData.stopped || !theOdometryData.isFinite())
+  {
+    closeBallSearch = {};
+    return;
+  }
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const unsigned now = theFrameInfo.time;
+  if(!seen || seen > now || (closeBallSearch.seen && seen < closeBallSearch.seen))
+  {
+    closeBallSearch = {};
+    return;
+  }
+  if(seen == closeBallSearch.seen || now - seen > 150u)
+    return;
+  // Keep a real near-foot observation, independent of subsequent collision-model updates.
+  const Vector2f& observed = theBallModel.lastPerception;
+  if(!observed.allFinite() || observed.squaredNorm() > sqr(900.f))
+  {
+    closeBallSearch = {};
+    return;
+  }
+  closeBallSearch.seen = seen;
+  closeBallSearch.started = 0;
+  closeBallSearch.ballInOdometry = theOdometryData * observed;
+  Vector2f velocity = theBallModel.estimate.velocity;
+  if(!velocity.allFinite())
+    velocity.setZero();
+  if(velocity.squaredNorm() > sqr(2500.f))
+    velocity.normalize(2500.f);
+  closeBallSearch.velocityInOdometry = velocity.rotated(theOdometryData.rotation);
+}
+
+bool WhiteFleetSkillBehaviorControl::handleCloseBallSearch()
+{
+  closeBallSearchVisited = true;
+  const bool allowed = SystemCall::getMode() == SystemCall::simulatedRobot &&
+    theGameState.state == GameState::playing && !theGameState.stopped && !theGameControllerData.stopped &&
+    theGameState.playerState == GameState::active && !theGameState.isGoalkeeper() &&
+    !theBehaviorStateInformation.remoteControlActive && !WhiteFleetBoosterPickupControl::held() &&
+    !WhiteFleetBoosterRemoteStand::held() && !theSystemSensorData.emergencyMode &&
+    !theEmergencyButtonState.buttonPressed && theFallDownState.state == FallDownState::upright &&
+    (theMotionInfo.executedPhase == MotionPhase::stand || theMotionInfo.executedPhase == MotionPhase::walk) &&
+    !theInterceptBallInformation.walkOutOfBallPath && !simulatedKickoffPending &&
+    theOdometryData.isFinite() && theRobotPose.isFinite();
+  if(!allowed)
+  {
+    closeBallSearch = {};
+    return false;
+  }
+  const unsigned now = theFrameInfo.time;
+  if(!closeBallSearch.seen || now < closeBallSearch.seen || closeBallSearch.consumedSeen == closeBallSearch.seen)
+    return false;
+  const unsigned age = now - closeBallSearch.seen;
+  if(age > 2000u)
+  {
+    closeBallSearch.consumedSeen = closeBallSearch.seen;
+    return false;
+  }
+  // A just-completed commanded kick retains its existing outgoing-ball recovery.
+  const Vector2f localVelocity = closeBallSearch.velocityInOdometry.rotated(-theOdometryData.rotation);
+  if(theMotionRequest.motion == MotionRequest::walkToBallAndKick &&
+     theMotionInfo.lastKickTimestamp >= closeBallSearch.seen && theMotionInfo.lastKickTimestamp <= now &&
+     now - theMotionInfo.lastKickTimestamp < 700u &&
+     localVelocity.dot(Vector2f(1.f, 0.f).rotated(theMotionRequest.targetDirection)) >= 0.f)
+  {
+    closeBallSearch.consumedSeen = closeBallSearch.seen;
+    return false;
+  }
+  const bool freshBehind = age <= 150u && theFieldBall.ballWasSeen(150) &&
+    theBallModel.lastPerception.x() < -120.f;
+  if(age < 180u && !freshBehind)
+    return false;
+
+  // The short prediction directs gaze and a bounded search, never a kick or ball estimate.
+  const float seconds = std::min(age * .001f, .5f);
+  const Vector2f predicted = theOdometryData.inverse() *
+    (closeBallSearch.ballInOdometry + closeBallSearch.velocityInOdometry * seconds);
+  if(!predicted.allFinite())
+  {
+    closeBallSearch = {};
+    return false;
+  }
+  if(!closeBallSearch.started)
+  {
+    closeBallSearch.started = now;
+    closeBallSearch.startOdometry = theOdometryData;
+    const float side = predicted.y() < 0.f ? -1.f : 1.f;
+    closeBallSearch.turn = predicted.x() < -100.f ? Angle(predicted.angle()) : Angle(side * 90_deg);
+  }
+  const Pose2f progress = closeBallSearch.startOdometry.inverse() * theOdometryData;
+  if(now < closeBallSearch.started || now - closeBallSearch.started > 1600u ||
+     progress.translation.squaredNorm() > sqr(350.f))
+  {
+    closeBallSearch.consumedSeen = closeBallSearch.seen;
+    return false;
+  }
+
+  autonomousRunOnlyThisFrame = true;
+  const unsigned elapsed = now - closeBallSearch.started;
+  if(predicted.x() >= -100.f && elapsed < 260u)
+  {
+    // The target is fixed in odometry, so repeated frames cannot keep backing up.
+    const Vector2f retreat = theOdometryData.inverse() *
+      (closeBallSearch.startOdometry * Vector2f(-180.f, 0.f));
+    const Vector2f targetOnField = theRobotPose * retreat;
+    if(theFieldDimensions.isInsideField(targetOnField) && !theIllegalAreas.isPositionIllegal(targetOnField, 100.f))
+      WalkToPointObstacle({.target = Pose2f(0_deg, retreat), .speed = {0.5f, 0.35f, 0.35f},
+                          .targetOfInterest = predicted});
+    else
+      Stand();
+    LookAtPoint({.target = {std::max(200.f, predicted.x()), predicted.y(), theBallSpecification.radius}});
+  }
+  else
+  {
+    const Angle remaining = Angle::normalize(closeBallSearch.turn - progress.rotation);
+    if(std::abs(remaining) > 10_deg)
+      WalkToPoint({.target = Pose2f(remaining, Vector2f::Zero()), .speed = {0.5f, 0.35f, 0.35f}});
+    else
+      Stand();
+    const Angle pan = std::clamp(Angle(predicted.angle()), Angle(-60_deg), Angle(60_deg));
+    const Angle tilt = theHeadLimits.getTiltBound(pan).limit(Angle(35_deg));
+    LookAtAngles({.pan = pan, .tilt = tilt, .speed = 180_deg});
+  }
+  return true;
+}
+
+void WhiteFleetSkillBehaviorControl::lookRoughlyAtBall(const Vector2f& relative)
+{
+  // Coarse head yaw is independent of the walking direction and its planner.
+  const float degrees = std::round(toDegrees(relative.angle()) / 15.f) * 15.f;
+  const Angle pan = std::clamp(Angle::fromDegrees(degrees), theHeadLimits.minPan(), theHeadLimits.maxPan());
+  const Angle tilt = theHeadLimits.getTiltBound(pan).limit(Angle(relative.norm() > 4000.f ? 10_deg : 20_deg));
+  LookAtAngles({.pan = pan, .tilt = tilt, .speed = 180_deg});
+}
+
+bool WhiteFleetSkillBehaviorControl::handlePredictedBallPursuit()
+{
+  const bool ballRequest = theSkillRequest.skill == SkillRequest::shoot || theSkillRequest.skill == SkillRequest::pass ||
+    theSkillRequest.skill == SkillRequest::dribble || theSkillRequest.skill == SkillRequest::clear;
+  const bool formationForward = simulatedKickoffFormation && simulatedKickoffReleased &&
+    WhiteFleetAutonomousKickoff::isReceiver(theGameState.playerNumber);
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || theGameState.state != GameState::playing ||
+     theGameState.stopped || theGameControllerData.stopped || theGameState.playerState != GameState::active ||
+     theGameState.isGoalkeeper() || theBehaviorStateInformation.remoteControlActive ||
+     WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
+     theSystemSensorData.emergencyMode || theEmergencyButtonState.buttonPressed ||
+     theFallDownState.state != FallDownState::upright ||
+     (theMotionInfo.executedPhase != MotionPhase::stand && theMotionInfo.executedPhase != MotionPhase::walk) ||
+     theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath ||
+     observationHeld ||
+     !theRobotPose.isFinite() || theRobotPose.quality == RobotPose::poor ||
+     (simulatedKickoffFormation && !formationForward) ||
+     (!formationForward && !ballRequest && theStrategyStatus.role != ActiveRole::toRole(ActiveRole::closestToTeamBall)))
+    return false;
+
+  const unsigned seen = theBallModel.timeWhenLastSeen;
+  const bool ownBall = seen && seen <= theFrameInfo.time && theFrameInfo.time - seen <= 300u &&
+    theFieldBall.ballWasSeen(300) && theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite();
+  if(!ownBall && !theTeamBallModel.isValid)
+    return false;
+  const Vector2f ball = ownBall ? theFieldBall.positionOnField : theTeamBallModel.position;
+  const Vector2f velocity = ownBall ? theBallModel.estimate.velocity.rotated(theRobotPose.rotation) : theTeamBallModel.velocity;
+  if(!ball.allFinite() || !velocity.allFinite() ||
+     (ball - theRobotPose.translation).squaredNorm() <= sqr(4000.f))
+    return false;
+
+  Vector2f predicted = BallPhysics::propagateBallPosition(ball, velocity, 1.f, theBallSpecification);
+  if(!predicted.allFinite())
+    return false;
+  predicted.x() = std::clamp(predicted.x(), theFieldDimensions.xPosOwnGoalLine + 400.f,
+                            theFieldDimensions.xPosOpponentGoalLine - 400.f);
+  predicted.y() = std::clamp(predicted.y(), theFieldDimensions.yPosRightTouchline + 400.f,
+                            theFieldDimensions.yPosLeftTouchline - 400.f);
+  const Vector2f relative = theRobotPose.inverse() * predicted;
+  WalkToPointObstacle({.target = Pose2f(relative.angle(), relative),
+                      .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
+                      .sideWalkingRequest = SideWalkingRequest::notAllowed});
+  lookRoughlyAtBall(theRobotPose.inverse() * ball);
+  return true;
 }
 
 bool WhiteFleetSkillBehaviorControl::handlePostKickReacquire()
@@ -1396,6 +1585,9 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
   const Vector2f& ball = theFieldBall.positionOnField;
   const bool ballSeen = seen && seen <= now && now - seen <= 300 && theFieldBall.ballWasSeen(300) &&
     ball.allFinite() && theFieldBall.positionRelative.allFinite();
+  if(simulatedKickoffReleased &&
+     (theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath))
+    return false;
   if(simulatedKickoffPending)
   {
     if(ballSeen)
@@ -1433,17 +1625,20 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
     if(relative.squaredNorm() < sqr(150.f) || (ballSeen && theFieldBall.positionRelative.squaredNorm() < sqr(1000.f)))
       Stand();
     else
-      WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), relative),
+      WalkToPointObstacle({.target = Pose2f(relative.angle(), relative),
                           .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
-                          .targetOfInterest = theFieldBall.recentBallPositionRelative()});
-    LookActive({.withBall = true});
+                          .sideWalkingRequest = SideWalkingRequest::notAllowed});
+    if(ballSeen && theFieldBall.positionRelative.squaredNorm() > sqr(4000.f))
+      lookRoughlyAtBall(theFieldBall.positionRelative);
+    else
+      LookActive({.withBall = true});
     return true;
   }
 
   const bool halfClosed = theGameState.state == GameState::ownKickOff &&
     (theIllegalAreas.illegal & (1u << IllegalAreas::opponentHalf));
   if(simulatedKickoffReleased && !halfClosed && ballSeen &&
-     theFieldBall.positionRelative.squaredNorm() < sqr(1600.f))
+    theFieldBall.positionRelative.squaredNorm() <= sqr(4000.f))
   {
     // Native shooting evaluates the current opening and can dribble if blocked.
     KickAtGoal();
@@ -1462,8 +1657,11 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
   autonomousRunOnlyThisFrame = true;
   WalkToPointObstacle({.target = Pose2f(Angle::normalize(-theRobotPose.rotation), theRobotPose.inverse() * pressure),
                       .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
-                      .targetOfInterest = theFieldBall.recentBallPositionRelative()});
-  LookActive({.withBall = true});
+                      .sideWalkingRequest = SideWalkingRequest::notAllowed});
+  if(ballSeen)
+    lookRoughlyAtBall(theFieldBall.positionRelative);
+  else
+    LookActive({.withBall = true});
   return true;
 }
 
