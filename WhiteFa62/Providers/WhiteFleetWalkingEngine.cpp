@@ -943,11 +943,15 @@ void WhiteFleetWalkPhase::getNextTargetRequest(JointAngles& target)
 
     // Special Feature Requests
     // 0 -> normal kick, 1 -> strong kick
-    *input++ = (engine.forceFastKick && !isOldKick) || kickType == KickInfo::rlKickStrong ? 1.f : 0.f; // Is strong kick?
+    const bool forceStrong = engine.forceFastKick && !isOldKick && SystemCall::getMode() != SystemCall::simulatedRobot;
+    *input++ = forceStrong || kickType == KickInfo::rlKickStrong ? 1.f : 0.f;
     // 0 -> overshoot in range, 1 -> undershoot in range
     *input++ = 0.f;
     // 0 -> accurate, 1 -> not so accurate
-    *input++ = !isOldKick && (engine.forceFastKick || engine.theMotionRequest.alignPrecisely == KickPrecision::justHitTheBall) ? 1.f : 0.f;
+    const bool requireAccuracy = SystemCall::getMode() == SystemCall::simulatedRobot &&
+      (kickType == KickInfo::rlKickStrong || kickType == KickInfo::rlKickDynamic) &&
+      engine.theMotionRequest.alignPrecisely == KickPrecision::normal;
+    *input++ = !isOldKick && !requireAccuracy && (engine.forceFastKick || engine.theMotionRequest.alignPrecisely == KickPrecision::justHitTheBall) ? 1.f : 0.f;
 
     // Ball velocity (3D)
     Vector2f velocity = engine.theMotionRequest.ballEstimate.velocity;

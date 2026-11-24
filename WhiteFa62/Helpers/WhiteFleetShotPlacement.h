@@ -76,6 +76,47 @@ namespace WhiteFleetShotPlacement
     return (point - (a + ab * t)).norm();
   }
 
+  /** Three reproducible targets: centre and halfway from centre to each post. */
+  inline Result bestThreeDirection(const Rangea& searchRange, const Vector2f& ballOnField,
+                                   const std::vector<Blocker>& blockers, float goalLineX,
+                                   float halfGoalWidth, const Params& params = Params(), const Angle* previous = nullptr)
+  {
+    Result result;
+    float best = -std::numeric_limits<float>::max();
+    if(!ballOnField.allFinite() || goalLineX <= ballOnField.x() || halfGoalWidth <= params.postSafety)
+      return result;
+    for(const float y : {0.f, halfGoalWidth * .5f, -halfGoalWidth * .5f})
+    {
+      const Vector2f target(goalLineX, y);
+      const Angle direction((target - ballOnField).angle());
+      if(!searchRange.isInside(direction))
+        continue;
+      float clearance = std::numeric_limits<float>::max();
+      for(const Blocker& blocker : blockers)
+        if(blocker.position.allFinite() && std::isfinite(blocker.radius))
+          clearance = std::min(clearance, distanceToSegment(blocker.position, ballOnField, target) - blocker.radius);
+      if(clearance < params.minClearance)
+        continue;
+      const float postClearance = halfGoalWidth - std::abs(y) - params.postSafety;
+      if(postClearance <= 0.f)
+        continue;
+      float score = std::min(clearance, params.clearanceCap) / params.clearanceCap -
+        params.postWeight * params.postReference / postClearance;
+      if(previous && std::abs(Angle::normalize(direction - *previous)) < .5_deg)
+        score += .08f; // Keep a still-clear target through small keeper-estimate jitter.
+      if(score > best)
+      {
+        result.direction = direction;
+        result.clearance = clearance;
+        result.postClearance = postClearance;
+        result.score = score;
+        result.placed = true;
+        best = score;
+      }
+    }
+    return result;
+  }
+
   /**
    * Chooses the field direction of a shot inside the given search range.
    * @param searchRange The allowed field directions.

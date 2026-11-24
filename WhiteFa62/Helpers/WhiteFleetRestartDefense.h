@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <limits>
 
 /** Two separated, legal screens for an opponent's restart in our half. */
 namespace WhiteFleetRestartDefense
@@ -14,45 +15,73 @@ namespace WhiteFleetRestartDefense
     std::optional<Vector2f> shot;
   };
 
+  inline float travelDistance(const Vector2f& from, const Vector2f& to, const Vector2f& ball, float radius)
+  {
+    const Vector2f a = from - ball, b = to - ball;
+    const float da = a.norm(), db = b.norm();
+    if(da < 1.f || db < 1.f)
+      return (to - from).norm() + radius;
+    const float angle = std::acos(std::clamp(a.dot(b) / (da * db), -1.f, 1.f));
+    const float alpha = std::acos(std::clamp(radius / da, 0.f, 1.f));
+    const float beta = std::acos(std::clamp(radius / db, 0.f, 1.f));
+    if(angle <= alpha + beta && da >= radius && db >= radius)
+      return (to - from).norm();
+    return std::sqrt(std::max(0.f, da * da - radius * radius)) +
+      std::sqrt(std::max(0.f, db * db - radius * radius)) +
+      radius * std::max(0.f, angle - alpha - beta) + std::max(0.f, radius - da);
+  }
+
   template<typename Legal>
   std::optional<Vector2f> lanePoint(const Vector2f& ball, const Vector2f& end, float preferred,
                                   float ownGoalX, float opponentGoalX, float halfWidth, float keepAway,
-                                  const std::optional<Vector2f>& reserved, const Legal& legal)
+                                  const std::optional<Vector2f>& reserved, const Legal& legal, const Vector2f* robot = nullptr)
   {
     const Vector2f lane = end - ball;
     const float length = lane.norm();
     if(!ball.allFinite() || !end.allFinite() || length < keepAway + 600.f)
       return std::nullopt;
+    if(robot)
+      preferred = (*robot - ball).dot(lane) / length;
     preferred = std::clamp(preferred, keepAway, length - 600.f);
-    for(const float offset : {0.f, -500.f, 500.f, -1000.f, 1000.f, -1500.f, 1500.f, -2000.f, 2000.f})
+    std::optional<Vector2f> result;
+    float best = std::numeric_limits<float>::max();
+    const auto consider = [&](float along)
     {
-      const float along = preferred + offset;
       if(along < keepAway || along > length - 600.f)
-        continue;
+        return;
       Vector2f candidate = ball + lane * (along / length);
-      // A corner can lie on the goal line itself. Keep the body inside the pitch.
       candidate.x() = std::clamp(candidate.x(), ownGoalX + 250.f, opponentGoalX - 250.f);
       candidate.y() = std::clamp(candidate.y(), -halfWidth + 250.f, halfWidth - 250.f);
       if((candidate - ball).norm() < keepAway ||
          (reserved && (candidate - *reserved).norm() < 1000.f) || !legal(candidate))
-        continue;
-      return candidate;
-    }
-    return std::nullopt;
+        return;
+      const float cost = robot ? travelDistance(*robot, candidate, ball, keepAway) : std::abs(along - preferred);
+      if(cost < best)
+      {
+        result = candidate;
+        best = cost;
+      }
+    };
+    consider(preferred);
+    for(float along = keepAway; along <= length - 600.f; along += 350.f)
+      consider(along);
+    consider(length - 600.f);
+    return result;
   }
 
   template<typename Legal>
   Layout plan(const Vector2f& ball, const Vector2f& receiver, float ownGoalX, float opponentGoalX,
-              float halfWidth, float keepAway, const Legal& legal)
+              float halfWidth, float keepAway, const Legal& legal,
+              const Vector2f* passRobot = nullptr, const Vector2f* shotRobot = nullptr)
   {
     Layout result;
     if(!ball.allFinite() || !receiver.allFinite() || !std::isfinite(keepAway) || keepAway <= 0.f)
       return result;
     const Vector2f goal(ownGoalX, 0.f);
     result.shot = lanePoint(ball, goal, .7f * (goal - ball).norm(), ownGoalX, opponentGoalX,
-                            halfWidth, keepAway, std::nullopt, legal);
+                            halfWidth, keepAway, std::nullopt, legal, shotRobot);
     result.pass = lanePoint(ball, receiver, .5f * (receiver - ball).norm(), ownGoalX, opponentGoalX,
-                            halfWidth, keepAway, result.shot, legal);
+                            halfWidth, keepAway, result.shot, legal, passRobot);
     return result;
   }
 }

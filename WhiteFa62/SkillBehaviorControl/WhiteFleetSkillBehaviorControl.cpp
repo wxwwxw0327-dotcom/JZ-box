@@ -16,6 +16,7 @@
 #include "WhiteFleetC15KickoffSwitch.h"
 #include "WhiteFleetAutonomousKickoff.h"
 #include "WhiteFleetRestartDefense.h"
+#include "WhiteFleetKickPower.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include "Platform/SystemCall.h"
 #include "Streaming/TypeRegistry.h"
@@ -365,20 +366,28 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
     return false;
 
   Vector2f ball = Vector2f::Zero(), velocity = Vector2f::Zero();
-  bool observed = false;
+  const bool corner = theGameState.isCornerKick();
+  bool observed = false, rulePosition = false, motionFresh = false;
   if(TeamActivityPolicy::fresh(now, theBallModel.timeWhenLastSeen, 300u) &&
      theBallModel.timeWhenLastSeen >= opponentRestartDefense.epoch && theFieldBall.ballWasSeen(300) &&
      theFieldBall.positionOnField.allFinite() && theBallModel.estimate.velocity.allFinite())
   {
     ball = theFieldBall.positionOnField;
     velocity = theBallModel.estimate.velocity.rotated(theRobotPose.rotation);
-    observed = true;
+    observed = motionFresh = true;
   }
   else if(theTeamBallModel.isValid && theTeamBallModel.position.allFinite() && theTeamBallModel.velocity.allFinite())
   {
     ball = theTeamBallModel.position;
     velocity = theTeamBallModel.velocity;
     observed = true;
+    motionFresh = TeamActivityPolicy::fresh(now, theBallModel.timeWhenLastSeen, 700u) &&
+      theBallModel.timeWhenLastSeen >= opponentRestartDefense.epoch;
+    for(const Teammate& peer : theTeamData.teammates)
+      motionFresh |= TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 700u) &&
+        TeamActivityPolicy::fresh(now, peer.theBallModel.timeWhenLastSeen, 700u) &&
+        peer.theBallModel.timeWhenLastSeen >= opponentRestartDefense.epoch &&
+        peer.theBallModel.timeWhenLastSeen <= peer.theFrameInfo.time;
   }
   else
   {
@@ -398,17 +407,52 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
         velocity = peer.theBallModel.estimate.velocity.rotated(peer.theRobotPose.rotation);
         BallPhysics::propagateBallPositionAndVelocity(ball, velocity, (now - peer.theFrameInfo.time) * .001f, theBallSpecification);
         newest = peer.theBallModel.timeWhenLastSeen;
-        observed = true;
+        observed = motionFresh = true;
       }
   }
-  if(!observed)
+  if(!observed && corner)
+  {
+    // Formation may use a known fixed restart point without inventing a BallModel.
+    float side = opponentRestartDefense.anchored ? (opponentRestartDefense.ball.y() < 0.f ? -1.f : 1.f) : 0.f;
+    unsigned newestSide = 0;
+    if(side == 0.f && TeamActivityPolicy::fresh(now, theBallModel.timeWhenLastSeen, 5000u) &&
+       theFieldBall.positionOnField.allFinite() && theFieldBall.positionOnField.x() < 1500.f &&
+       std::abs(theFieldBall.positionOnField.y()) > 1500.f)
+    {
+      side = theFieldBall.positionOnField.y() < 0.f ? -1.f : 1.f;
+      newestSide = theBallModel.timeWhenLastSeen;
+    }
+    if(!opponentRestartDefense.anchored)
+      for(const Teammate& peer : theTeamData.teammates)
+        if(peer.theRobotPose.isFinite() && TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 1500u) &&
+           TeamActivityPolicy::fresh(now, peer.theBallModel.timeWhenLastSeen, 5000u) &&
+           peer.theBallModel.timeWhenLastSeen > newestSide && peer.theBallModel.estimate.position.allFinite())
+        {
+          const Vector2f last = peer.theRobotPose * peer.theBallModel.estimate.position;
+          if(last.x() < 1500.f && std::abs(last.y()) > 1500.f)
+          {
+            side = last.y() < 0.f ? -1.f : 1.f;
+            newestSide = peer.theBallModel.timeWhenLastSeen;
+          }
+        }
+    if(side == 0.f)
+      for(const auto& opponent : theGlobalOpponentsModel.opponents)
+        if(opponent.position.allFinite() &&
+           (opponent.position - Vector2f(theFieldDimensions.xPosOwnGoalLine,
+             opponent.position.y() < 0.f ? theFieldDimensions.yPosRightTouchline : theFieldDimensions.yPosLeftTouchline)).norm() < 2000.f)
+          side = opponent.position.y() < 0.f ? -1.f : 1.f;
+    if(side == 0.f)
+      return false;
+    ball = Vector2f(theFieldDimensions.xPosOwnGoalLine, side * theFieldDimensions.yPosLeftTouchline);
+    rulePosition = true;
+  }
+  else if(!observed)
   {
     if(!opponentRestartDefense.anchored || now < opponentRestartDefense.observed ||
        now - opponentRestartDefense.observed > 1200u)
       return false;
     ball = opponentRestartDefense.ball;
   }
-  const bool corner = theGameState.isCornerKick();
   if(!ball.allFinite() || !velocity.allFinite() ||
      ball.x() < theFieldDimensions.xPosOwnGoalLine - 300.f ||
      ball.x() > theFieldDimensions.xPosOpponentGoalLine + 300.f ||
@@ -417,18 +461,25 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
      (corner && (ball.x() > theFieldDimensions.xPosOwnGoalLine + 2000.f ||
                  std::abs(ball.y()) < theFieldDimensions.yPosLeftTouchline - 2500.f)))
     return false;
-  // Do not follow the old restart layout into live play or replace a native save.
-  if(theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath ||
-     (observed && velocity.norm() > 600.f))
+  // A stale native flag must not retire the whole restart before setup starts.
+  if(observed && velocity.norm() > 600.f)
   {
-    opponentRestartDefense.released = true;
+    if(motionFresh)
+      opponentRestartDefense.released = true;
     return false;
   }
+  if(theInterceptBallInformation.intercept || theInterceptBallInformation.walkOutOfBallPath)
+    return false;
   if(observed)
   {
     opponentRestartDefense.ball = ball;
     opponentRestartDefense.observed = now;
     opponentRestartDefense.anchored = true;
+  }
+  else if(rulePosition)
+  {
+    opponentRestartDefense.ball = ball;
+    opponentRestartDefense.anchored = true; // Formation point, never a fabricated ball observation.
   }
 
   // Fixed jersey order needs no ACK. A lone available defender covers goal.
@@ -449,8 +500,7 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
   if(defenders.empty() || (theGameState.playerNumber != defenders.front() &&
      (defenders.size() < 2 || theGameState.playerNumber != defenders[1])))
     return false;
-  const bool pass = defenders.size() > 1 && theGameState.playerNumber == defenders.front();
-  const float keepAway = theFieldDimensions.centerCircleRadius + 400.f;
+  const float keepAway = theFieldDimensions.centerCircleRadius + (rulePosition ? 1100.f : 400.f);
   const Vector2f goal(theFieldDimensions.xPosOwnGoalLine, 0.f);
   const float side = ball.y() < 0.f ? -1.f : 1.f;
   // If the receiver is unseen, screen the central/far-side penalty-area entrance.
@@ -476,8 +526,49 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
   {
     return !theIllegalAreas.isPositionIllegal(target, 250.f);
   };
-  const auto layout = WhiteFleetRestartDefense::plan(ball, receiver, theFieldDimensions.xPosOwnGoalLine,
-    theFieldDimensions.xPosOpponentGoalLine, theFieldDimensions.yPosLeftTouchline, keepAway, legal);
+  const auto poseOf = [&](int number, Pose2f& pose)
+  {
+    if(number == theGameState.playerNumber) { pose = theRobotPose; return true; }
+    for(const Teammate& peer : theTeamData.teammates)
+      if(peer.number == number && peer.theRobotPose.isFinite() &&
+         TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 1200u))
+      { pose = peer.theRobotPose; return true; }
+    for(const auto& peer : theGlobalTeammatesModel.teammates)
+      if(peer.playerNumber == number && peer.pose.isFinite())
+      { pose = peer.pose; return true; }
+    return false;
+  };
+  const auto plan = [&](const Vector2f& passPose, const Vector2f& shotPose)
+  {
+    return WhiteFleetRestartDefense::plan(ball, receiver, theFieldDimensions.xPosOwnGoalLine,
+      theFieldDimensions.xPosOpponentGoalLine, theFieldDimensions.yPosLeftTouchline, keepAway, legal, &passPose, &shotPose);
+  };
+  Pose2f first, second;
+  const bool knowFirst = poseOf(defenders.front(), first);
+  const bool knowSecond = defenders.size() > 1 && poseOf(defenders[1], second);
+  if(defenders.size() > 1 && knowFirst && knowSecond &&
+     (opponentRestartDefense.passPlayer != defenders.front() && opponentRestartDefense.passPlayer != defenders[1]))
+  {
+    const auto a = plan(first.translation, second.translation), b = plan(second.translation, first.translation);
+    const auto cost = [&](const WhiteFleetRestartDefense::Layout& layout, const Vector2f& p, const Vector2f& q)
+    {
+      if(!layout.pass || !layout.shot) return 1e9f;
+      const float passDistance = WhiteFleetRestartDefense::travelDistance(p, *layout.pass, ball, keepAway);
+      const float shotDistance = WhiteFleetRestartDefense::travelDistance(q, *layout.shot, ball, keepAway);
+      return std::max(passDistance, shotDistance) + .25f * (passDistance + shotDistance);
+    };
+    opponentRestartDefense.passPlayer = cost(b, second.translation, first.translation) + 250.f <
+      cost(a, first.translation, second.translation) ? defenders[1] : defenders.front();
+  }
+  const int passPlayer = opponentRestartDefense.passPlayer ? opponentRestartDefense.passPlayer : defenders.front();
+  const bool pass = defenders.size() > 1 && theGameState.playerNumber == passPlayer;
+  Vector2f passPose = theRobotPose.translation, shotPose = theRobotPose.translation;
+  if(knowFirst && knowSecond)
+  {
+    passPose = passPlayer == defenders.front() ? first.translation : second.translation;
+    shotPose = passPlayer == defenders.front() ? second.translation : first.translation;
+  }
+  const auto layout = plan(passPose, shotPose);
   const auto& requested = pass ? layout.pass : layout.shot;
   const auto& other = pass ? layout.shot : layout.pass;
   if(!requested)
@@ -491,7 +582,7 @@ bool WhiteFleetSkillBehaviorControl::handleOpponentRestartDefense()
   opponentRestartDefense.pass = pass;
   opponentRestartDefense.updated = now;
   const Vector2f relative = theRobotPose.inverse() * opponentRestartDefense.target;
-  const bool near = relative.norm() < 1200.f;
+  const bool near = relative.norm() < 400.f;
   const Angle facing = near ? Angle::normalize((ball - opponentRestartDefense.target).angle() - theRobotPose.rotation) :
     relative.angle();
   WalkToPointObstacle({.target = Pose2f(facing, relative), .reduceWalkSpeedType = ReduceWalkSpeedType::noChange,
@@ -1794,6 +1885,9 @@ void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
             receiverY = peer.theRobotPose.translation.y();
       }
       simulatedKickoffSide = receiverY < 0.f ? -1.f : 1.f;
+      simulatedKickoffTarget = Vector2f(theFieldDimensions.xPosHalfwayLine + 800.f,
+        simulatedKickoffSide * std::min(std::clamp(std::abs(receiverY), 900.f, 1800.f), theFieldDimensions.yPosLeftTouchline - 700.f));
+      simulatedKickoffTargetChosen = simulatedKickoffReceived = false;
       if(kicker && state == GameState::ownKickOff)
       {
         kickerHoldEvent = simulatedKickoffStart;
@@ -1811,6 +1905,7 @@ void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
     simulatedKickoffPending = simulatedKickoffFormation = false;
     return;
   }
+  const Vector2f center(theFieldDimensions.xPosHalfwayLine, 0.f);
   if(kicker && theMotionInfo.lastKickTimestamp > simulatedKickoffKickAtStart &&
      theMotionInfo.lastKickTimestamp >= simulatedKickoffStart)
   {
@@ -1825,9 +1920,20 @@ void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
          peer.theIndirectKick.lastKickTimestamp > simulatedKickoffStart &&
          peer.theIndirectKick.lastKickTimestamp <= peer.theFrameInfo.time)
         simulatedKickoffReleased = true;
+  if(receiver)
+    for(const Teammate& peer : theTeamData.teammates)
+      if(peer.number == WhiteFleetAutonomousKickoff::kickerNumber && peer.theRobotPose.isFinite() &&
+         TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 1200u) && peer.theFrameInfo.time >= simulatedKickoffStart &&
+         peer.theBehaviorStatus.passTarget == theGameState.playerNumber && peer.theBehaviorStatus.shootingTo.has_value())
+      {
+        const Vector2f target = peer.theRobotPose * *peer.theBehaviorStatus.shootingTo;
+        if(target.allFinite() && target.x() > center.x() + 500.f &&
+           target.x() < theFieldDimensions.xPosOpponentGoalLine - 700.f &&
+           std::abs(target.y()) < theFieldDimensions.yPosLeftTouchline - 600.f)
+          simulatedKickoffTarget = target;
+      }
 
   const unsigned seen = theBallModel.timeWhenLastSeen;
-  const Vector2f center(theFieldDimensions.xPosHalfwayLine, 0.f);
   if(seen && seen <= now && now - seen <= 300u && theFieldBall.ballWasSeen(300) &&
      theFieldBall.positionOnField.allFinite() &&
      (theFieldBall.positionOnField - center).squaredNorm() > sqr(600.f))
@@ -1846,7 +1952,7 @@ void WhiteFleetSkillBehaviorControl::updateSimulatedOwnKickoff()
 
 bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
 {
-  if(!simulatedKickoffFormation || theGameControllerData.state != STATE_PLAYING ||
+  if(SystemCall::getMode() != SystemCall::simulatedRobot || !simulatedKickoffFormation || theGameControllerData.state != STATE_PLAYING ||
      (!simulatedKickoffReleased && theGameControllerData.kickingTeam != Global::getSettings().teamNumber) ||
      theGameState.stopped || theGameControllerData.stopped || theBehaviorStateInformation.remoteControlActive ||
      WhiteFleetBoosterPickupControl::held() || WhiteFleetBoosterRemoteStand::held() ||
@@ -1869,13 +1975,44 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
   {
     if(ballSeen)
     {
-      // Freeze the side at kickoff, so the approaching foot does not change aim
-      // when the receiver crosses the centre line or a later team packet arrives.
-      const float postMargin = theFieldDimensions.goalPostRadius + theBallSpecification.radius + 450.f;
-      const float offset = std::min(600.f, std::max(0.f, theFieldDimensions.yPosLeftGoal - postMargin));
-      const Vector2f aim(theFieldDimensions.xPosOpponentGoalLine, simulatedKickoffSide * offset);
-      GoToBallAndKick({.targetDirection = Angle::normalize((aim - ball).angle() - theRobotPose.rotation),
-                       .kickType = KickInfo::rlKickStrong});
+      // Use a short advancing pass instead of a slow centre-to-goal shot.
+      if(!simulatedKickoffTargetChosen)
+      {
+        float best = -std::numeric_limits<float>::max();
+        const Vector2f preferred = simulatedKickoffTarget;
+        Vector2f receiverPosition(center.x() - 325.f, preferred.y());
+        for(const Teammate& peer : theTeamData.teammates)
+          if(peer.number == WhiteFleetAutonomousKickoff::receiverNumber && peer.theRobotPose.isFinite() &&
+             TeamActivityPolicy::fresh(now, peer.theFrameInfo.time, 1200u))
+            receiverPosition = peer.theRobotPose.translation;
+        const float laneY = std::abs(preferred.y());
+        for(const Vector2f& offset : {Vector2f(800.f, laneY), Vector2f(600.f, laneY + 400.f), Vector2f(1100.f, laneY)})
+        {
+          const Vector2f candidate(center.x() + offset.x(), simulatedKickoffSide *
+            std::min(offset.y(), theFieldDimensions.yPosLeftTouchline - 700.f));
+          const Vector2f lane = candidate - ball;
+          float clearance = 10000.f;
+          for(const auto& opponent : theGlobalOpponentsModel.opponents)
+            if(opponent.position.allFinite())
+            {
+              const float along = std::clamp((opponent.position - ball).dot(lane) / std::max(1.f, lane.squaredNorm()), 0.f, 1.f);
+              clearance = std::min(clearance, (opponent.position - ball - along * lane).norm() - 350.f);
+            }
+          const float score = clearance - .4f * (candidate - receiverPosition).norm() - .1f * (candidate - preferred).norm();
+          if(score > best)
+          {
+            best = score;
+            simulatedKickoffTarget = candidate;
+          }
+        }
+        simulatedKickoffTargetChosen = true;
+      }
+      const float distance = (simulatedKickoffTarget - ball).norm();
+      GoToBallAndKick({.targetDirection = Angle::normalize((simulatedKickoffTarget - ball).angle() - theRobotPose.rotation),
+                       .kickType = KickInfo::rlKickDynamic,
+                       .length = WhiteFleetKickPower::passLength(distance, theBallSpecification)});
+      PassTarget({.passTarget = WhiteFleetAutonomousKickoff::receiverNumber,
+                  .ballTarget = theRobotPose.inverse() * simulatedKickoffTarget});
     }
     else
     {
@@ -1914,15 +2051,23 @@ bool WhiteFleetSkillBehaviorControl::handleSimulatedOwnKickoff()
 
   const bool halfClosed = theGameState.state == GameState::ownKickOff &&
     (theIllegalAreas.illegal & (1u << IllegalAreas::opponentHalf));
-  if(simulatedKickoffReleased && !halfClosed && ballSeen &&
+  if(simulatedKickoffReleased && !halfClosed && ballSeen && ball.x() > center.x() + 500.f &&
+     theFieldBall.positionRelative.squaredNorm() < sqr(1100.f))
+    simulatedKickoffReceived = true;
+  if(simulatedKickoffReceived && !halfClosed && ballSeen &&
     theFieldBall.positionRelative.squaredNorm() <= sqr(4000.f))
   {
-    // Native shooting evaluates the current opening and can dribble if blocked.
-    KickAtGoal();
+    // First secure the short opening, then advance instead of repeating a long midfield shot.
+    if((Vector2f(theFieldDimensions.xPosOpponentGoalLine, 0.f) - ball).norm() > 6000.f)
+      DribbleToGoal();
+    else
+      KickAtGoal();
     return true;
   }
-  Vector2f pressure(theFieldDimensions.xPosOpponentPenaltyMark - 900.f,
-                    simulatedKickoffSide * std::min(1000.f, theFieldDimensions.yPosLeftGoal));
+  Vector2f pressure = simulatedKickoffReceived ?
+    Vector2f(theFieldDimensions.xPosOpponentPenaltyMark - 900.f,
+             simulatedKickoffSide * std::min(1000.f, theFieldDimensions.yPosLeftGoal)) :
+    simulatedKickoffTarget - Vector2f(350.f, 0.f);
   const bool reboundBehind = ballSeen && ball.x() > center.x() + 1000.f &&
     ball.x() < theRobotPose.translation.x();
   if(simulatedKickoffReleased && ballSeen && (ball.x() > pressure.x() || reboundBehind))

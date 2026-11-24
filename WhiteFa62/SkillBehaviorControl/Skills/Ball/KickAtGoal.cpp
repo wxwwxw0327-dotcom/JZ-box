@@ -10,6 +10,7 @@
 #include "Tools/BehaviorControl/KickSelection.h"
 #include "Tools/BehaviorControl/SectorWheel.h"
 #include "Debugging/DebugDrawings.h"
+#include "WhiteFleetKickPower.h"
 #include <limits>
 
 namespace WhiteFleetKickAtGoal
@@ -59,7 +60,9 @@ option((WhiteFleetSkillBehaviorControl) KickAtGoal,
       if(theKickAtGoalEvaluation.kickInfo.isValid && theIndirectKick.allowDirectKick)
       {
         GoToBallAndKick({.targetDirection = theKickAtGoalEvaluation.kickInfo.kickDirection,
-                         .kickType = theKickAtGoalEvaluation.kickInfo.kickType});
+                         .kickType = SystemCall::getMode() == SystemCall::simulatedRobot ? KickInfo::rlKickStrong : theKickAtGoalEvaluation.kickInfo.kickType,
+                         .alignPrecisely = KickPrecision::normal,
+                         .length = WhiteFleetKickPower::fullLength()});
       }
       else if(theGameState.isFreeKick() && theGameState.isForOwnTeam())
       {
@@ -80,13 +83,23 @@ option((WhiteFleetSkillBehaviorControl) KickAtGoal,
   {
     action
     {
-      if(state_time == 0)
+      const bool liveAim = SystemCall::getMode() == SystemCall::simulatedRobot;
+      if(liveAim)
+        theKickAtGoalEvaluation.update();
+      if(liveAim && (!theKickAtGoalEvaluation.kickInfo.isValid || !theIndirectKick.allowDirectKick))
+        DribbleToGoal();
+      else
       {
-        kickAngleInField = theKickAtGoalEvaluation.kickInfo.kickDirection + theRobotPose.rotation;
-        kickType = theKickAtGoalEvaluation.kickInfo.kickType;
+        if(state_time == 0 || liveAim)
+        {
+          kickAngleInField = theKickAtGoalEvaluation.kickInfo.kickDirection + theRobotPose.rotation;
+          kickType = theKickAtGoalEvaluation.kickInfo.kickType;
+        }
+        GoToBallAndKick({.targetDirection = kickAngleInField - theRobotPose.rotation,
+                         .kickType = liveAim ? KickInfo::rlKickStrong : kickType,
+                         .alignPrecisely = KickPrecision::normal,
+                         .length = WhiteFleetKickPower::fullLength()});
       }
-      GoToBallAndKick({.targetDirection = kickAngleInField - theRobotPose.rotation,
-                       .kickType = kickType});
     }
   }
 

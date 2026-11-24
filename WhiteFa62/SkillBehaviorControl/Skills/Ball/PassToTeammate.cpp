@@ -18,6 +18,7 @@
 #include "WhiteFleetGoalKickExecution.h"
 #include "Tools/BehaviorControl/TeamActivityPolicy.h"
 #include "Tools/Motion/KickLengthConverter.h"
+#include "WhiteFleetKickPower.h"
 
 option((WhiteFleetSkillBehaviorControl) PassToTeammate,
        args((int) playerNumber,
@@ -247,6 +248,8 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
 
   const auto scaleKickStrength = [&](float& kickLength)
   {
+    if(SystemCall::getMode() == SystemCall::simulatedRobot)
+      return WhiteFleetKickPower::passLength(kickLength, theBallSpecification);
     const float upperKickLength = std::max(forcedMinimalPassKickLength, 3.f * kickLength);
     const Angle interceptError = Angle::normalize((teammate->pose.translation - theFieldBall.positionRelative).angle() - (lastTargetEvaluation.bestShiftedTargetOnField - theFieldBall.positionRelative).angle());
     return mapToRange(std::abs(interceptError / 15_deg), 0.f, 1.f, upperKickLength, kickLength);
@@ -417,6 +420,8 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
 
       // Set the most suitable kick and its parameters, then execute it.
       auto kickType = selectKickType();
+      if(SystemCall::getMode() == SystemCall::simulatedRobot)
+        kickType = KickInfo::rlKickDynamic;
 
       // TODO: Opponents running into the planned trajectory can regularly (unintentionally) block and intercept the ball, because the kick angle is not adjusted in the two'ish seconds it takes the robot to go to the ball and kick.
       if(lastTargetEvaluation.isValid && (lastTargetEvaluation.isAngleFree || isFreeKick()))
@@ -506,12 +511,16 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
       if(safe)
       {
         const float length=(target-ball).norm();
+        const float commandLength = SystemCall::getMode() == SystemCall::simulatedRobot ?
+          WhiteFleetKickPower::passLength(length, theBallSpecification) : length;
         auto type=backfield||(theGameState.isGoalkeeper() && (theGameState.isGoalKick()||theSkillRequest.restartPassGoalKick))
           ? KickInfo::rlKickStrong:KickInfo::rlKickDynamic;
-        float requestedVelocity=KickLengthConverter::requestedBallVelocity(type,length,theKickInfo,
+        if(SystemCall::getMode() == SystemCall::simulatedRobot)
+          type = KickInfo::rlKickDynamic;
+        float requestedVelocity=KickLengthConverter::requestedBallVelocity(type,commandLength,theKickInfo,
           theBallSpecification,theWalkingEngineOutput.kickVelocityRange);
         float flight=KickLengthConverter::requestedFlightTime(requestedVelocity,length,theBallSpecification);
-        if(type==KickInfo::rlKickDynamic && (!std::isfinite(flight) || flight>30.f))
+        if(SystemCall::getMode() != SystemCall::simulatedRobot && type==KickInfo::rlKickDynamic && (!std::isfinite(flight) || flight>30.f))
         {
           type=KickInfo::rlKickStrong;
           requestedVelocity=KickLengthConverter::requestedBallVelocity(type,length,theKickInfo,
@@ -541,7 +550,7 @@ option((WhiteFleetSkillBehaviorControl) PassToTeammate,
           reason=2;
           theBehaviorStatus.restartPassAdmission=3;
           GoToBallAndKick({.targetDirection=Angle::normalize(fieldAngle-theRobotPose.rotation),
-            .kickType=type,.length=length,.reduceWalkSpeedType=ReduceWalkSpeedType::noChange});
+            .kickType=type,.length=commandLength,.reduceWalkSpeedType=ReduceWalkSpeedType::noChange});
         }
         else
         {

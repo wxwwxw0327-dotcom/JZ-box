@@ -88,23 +88,56 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
     bool placementOffCenter = false;
     float placementClearance = 0.f;
     Angle placementDirection = 0_deg;
+    const bool threePoint = SystemCall::getMode() == SystemCall::simulatedRobot;
+    const bool placementOn = shotPlacement && shotPlacementAllowed();
+    const Angle uncertainty = threePoint ? std::min(kickInaccuracy, Angle(3_deg)) : kickInaccuracy;
+    float bestPlacementScore = -std::numeric_limits<float>::max();
+    std::vector<WhiteFleetShotPlacement::Blocker> blockers;
+    if(placementOn)
+      for(const Obstacle& obstacle : theObstacleModel.obstacles)
+      {
+        if(threePoint && (obstacle.lastSeen > theFrameInfo.time || theFrameInfo.getTimeSince(obstacle.lastSeen) > 1500))
+          continue;
+        const Vector2f position = theRobotPose * obstacle.center;
+        if(!position.allFinite() || position.x() <= theFieldBall.positionOnField.x())
+          continue;
+        blockers.push_back({position, std::max(150.f, .5f * (obstacle.left - obstacle.right).norm())});
+      }
+    if(threePoint)
+      for(const auto& opponent : theGlobalOpponentsModel.opponents)
+        if(!opponent.unidentified && opponent.position.allFinite() &&
+           opponent.position.x() > theFieldBall.positionOnField.x() &&
+           opponent.position.x() < theFieldDimensions.xPosOpponentGoalLine + 500.f)
+          blockers.push_back({opponent.position, 250.f});
+    const auto chooseKickDirection = [&](const Rangea& range, WhiteFleetShotPlacement::Result& result) -> Angle
+    {
+      if(!placementOn)
+        return range.limit(mostOptimalGoalDirectionInField);
+      result = threePoint ? WhiteFleetShotPlacement::bestThreeDirection(range, theFieldBall.positionOnField, blockers,
+          goalLine.base.x(), theFieldDimensions.yPosLeftGoal, WhiteFleetShotPlacement::Params(),
+          wasValidLastFrame ? &lastTargetAngleOnField : nullptr) :
+        WhiteFleetShotPlacement::bestDirection(range, theFieldBall.positionOnField, blockers,
+          goalLine.base.x(), theFieldDimensions.yPosLeftGoal);
+      return result.placed ? result.direction : range.limit(mostOptimalGoalDirectionInField);
+    };
 
     if(theFieldBall.positionOnField.x() > theFieldDimensions.xPosOpponentGoalPost - minBallGoalPostOffset - (lastAimingAtGoal ? hysteresisNumber : 0.f) &&
        std::abs(theFieldBall.positionOnField.y()) < theFieldDimensions.yPosLeftGoal - minBallGoalPostOffset - (lastAimingAtGoal ? 0.f : hysteresisNumber))
     {
       const Rangea clampedRange(std::max<Angle>(angleToRightPost, -pi_2), std::min<Angle>(angleToLeftPost, pi_2));
-      const Rangea searchRange = clampedRange.getSize() > 2.f * kickInaccuracy ?
-                                 Rangea(clampedRange.min + kickInaccuracy, clampedRange.max - kickInaccuracy) :
+      const Rangea searchRange = clampedRange.getSize() > 2.f * uncertainty ?
+                                 Rangea(clampedRange.min + uncertainty, clampedRange.max - uncertainty) :
                                  Rangea(clampedRange.getCenter());
 
-      kickDirection = searchRange.getCenter() - theRobotPose.rotation;
-
-      theKickAtGoalEvaluation.kickInfo.isValid = true;
-      VERIFY(Geometry::getIntersectionOfLines(goalLine,
-                                              Geometry::Line(Pose2f(Angle::normalize(theRobotPose.rotation + theKickAtGoalEvaluation.kickInfo.kickDirection),
+      WhiteFleetShotPlacement::Result placement;
+      kickDirection = (threePoint ? chooseKickDirection(searchRange, placement) : searchRange.getCenter()) - theRobotPose.rotation;
+      theKickAtGoalEvaluation.kickInfo.isValid = !threePoint || placement.placed;
+      if(theKickAtGoalEvaluation.kickInfo.isValid)
+        VERIFY(Geometry::getIntersectionOfLines(goalLine,
+                                              Geometry::Line(Pose2f(Angle::normalize(theRobotPose.rotation + kickDirection),
                                                              theFieldBall.positionOnField)), goalLineIntersection));
       CROSS("option:KickAtGoal:goalLineIntersection", goalLineIntersection.x(), goalLineIntersection.y(), 100, 20, Drawings::solidPen, ColorRGBA::white);
-      aimingAtGoal = true;
+      aimingAtGoal = theKickAtGoalEvaluation.kickInfo.isValid;
     }
     else if(angleToLeftPost < angleToRightPost ||
             (theFieldBall.positionOnField.x() >= theFieldDimensions.xPosOpponentGoalPost - minBallGoalPostOffset - (lastAimingAtGoal ? 0.f : hysteresisNumber) &&
@@ -116,32 +149,6 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
     {
       ASSERT(std::abs(angleToLeftPost) <= pi_2);
       ASSERT(std::abs(angleToRightPost) <= pi_2);
-
-      // Robots that could intercept the shot. Usually the goalkeeper, but any robot on the
-      // line between ball and goal matters.
-      std::vector<WhiteFleetShotPlacement::Blocker> blockers;
-      const bool placementOn = shotPlacement && shotPlacementAllowed();
-      if(placementOn)
-        for(const Obstacle& obstacle : theObstacleModel.obstacles)
-        {
-          const Vector2f obstacleOnField = theRobotPose * obstacle.center;
-          if(obstacleOnField.x() <= theFieldBall.positionOnField.x())
-            continue;
-          WhiteFleetShotPlacement::Blocker blocker;
-          blocker.position = obstacleOnField;
-          blocker.radius = std::max(150.f, 0.5f * (obstacle.left - obstacle.right).norm());
-          blockers.push_back(blocker);
-        }
-
-      // Pick the free direction farthest away from the next blocker instead of the goal centre.
-      const auto chooseKickDirection = [&](const Rangea& range, WhiteFleetShotPlacement::Result& result) -> Angle
-      {
-        if(!placementOn)
-          return range.limit(mostOptimalGoalDirectionInField);
-        result = WhiteFleetShotPlacement::bestDirection(range, theFieldBall.positionOnField, blockers,
-                                              goalLine.base.x(), theFieldDimensions.yPosLeftGoal);
-        return result.placed ? result.direction : range.limit(mostOptimalGoalDirectionInField);
-      };
 
       // Helper function
       const auto addObstacle = [&](std::vector<WhiteFleetObstacleSector>& obstacleSectors, const Obstacle& obstacle)
@@ -241,22 +248,30 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
           if(openingAngle < minOpeningAngle)
             continue;
 
-          const Rangea searchRange = clampedRange.getSize() > 2.f * kickInaccuracy ?
-                                     Rangea(clampedRange.min + kickInaccuracy, clampedRange.max - kickInaccuracy) :
+          const Rangea searchRange = clampedRange.getSize() > 2.f * uncertainty ?
+                                     Rangea(clampedRange.min + uncertainty, clampedRange.max - uncertainty) :
                                      Rangea(clampedRange.getCenter());
           WhiteFleetShotPlacement::Result placement;
           Angle kickAngleInField = chooseKickDirection(searchRange, placement);
+          if(threePoint && (!placement.placed || placement.score <= bestPlacementScore))
+            continue;
+          if(threePoint)
+          {
+            bestPlacementScore = placement.score;
+            placementOffCenter = false;
+          }
           if(placement.placed && std::abs(Angle::normalize(placement.direction - mostOptimalGoalDirectionInField)) > 3_deg)
           {
             placementOffCenter = true;
             placementClearance = placement.clearance;
             placementDirection = placement.direction;
           }
-          if(theGameState.isFreeKick())
+          if(theGameState.isFreeKick() && !threePoint)
             kickAngleInField = (kickAngleInField + searchRange.getCenter()) / 2.f;
           kickDirection = kickAngleInField - theRobotPose.rotation;
           theKickAtGoalEvaluation.kickInfo.isValid = true;
-          break;
+          if(!threePoint)
+            break;
         }
         else
         {
@@ -266,21 +281,32 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
             theRobotPose.quality!=RobotPose::poor,theFieldBall.timeSinceBallWasSeen,
             theFieldBall.positionOnField.x(),theFieldDimensions.xPosOpponentPenaltyArea,
             theFieldDimensions.xPosOpponentGoalLine,theFieldBall.positionRelative.norm(),sectorShift);
-          const Angle sectorShiftValue = sector.angleRange.getSize() * useShift;
+          const Angle sectorShiftValue = threePoint ? std::max(uncertainty, Angle(sector.angleRange.getSize() * useShift)) :
+            Angle(sector.angleRange.getSize() * useShift);
+          if(threePoint && sector.angleRange.getSize() <= 2.f * sectorShiftValue)
+            continue;
           const Rangea searchRange(sector.angleRange.min + sectorShiftValue, sector.angleRange.max - sectorShiftValue);
           WhiteFleetShotPlacement::Result placement;
           Angle kickAngleInField = chooseKickDirection(searchRange, placement);
+          if(threePoint && (!placement.placed || placement.score <= bestPlacementScore))
+            continue;
+          if(threePoint)
+          {
+            bestPlacementScore = placement.score;
+            placementOffCenter = false;
+          }
           if(placement.placed && std::abs(Angle::normalize(placement.direction - mostOptimalGoalDirectionInField)) > 3_deg)
           {
             placementOffCenter = true;
             placementClearance = placement.clearance;
             placementDirection = placement.direction;
           }
-          if(theGameState.isFreeKick())
+          if(theGameState.isFreeKick() && !threePoint)
             kickAngleInField = (kickAngleInField + searchRange.getCenter()) / 2.f;
           kickDirection = kickAngleInField - theRobotPose.rotation;
           theKickAtGoalEvaluation.kickInfo.isValid = true;
-          break;
+          if(!threePoint)
+            break;
         }
       }
     }
@@ -295,6 +321,8 @@ void WhiteFleetKickAtGoalEvaluationProvider::update(KickAtGoalEvaluation& theKic
       aimingAtGoal = true;
       theKickAtGoalEvaluation.kickInfo.kickDirection = Angle::normalize(kickDirection);
       theKickAtGoalEvaluation.kickInfo.kickType = getDistanceToNearestObstacle(theKickAtGoalEvaluation, sectorsOriginal) < (theKickAtGoalEvaluation.kickInfo.kickType == useKick ? distanceToObstacle.min : distanceToObstacle.max) ? replaceKick : useKick;
+      if(threePoint)
+        theKickAtGoalEvaluation.kickInfo.kickType = KickInfo::rlKickStrong;
       VERIFY(Geometry::getIntersectionOfLines(goalLine,
                                               Geometry::Line(Pose2f(Angle::normalize(theRobotPose.rotation + theKickAtGoalEvaluation.kickInfo.kickDirection),
                                                              theFieldBall.positionOnField)), goalLineIntersection));

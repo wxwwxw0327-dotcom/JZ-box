@@ -22,6 +22,7 @@
 #include "Representations/Infrastructure/FrameInfo.h"
 #include "Representations/Infrastructure/GameState.h"
 #include "Representations/Modeling/ObstacleModel.h"
+#include "Representations/Modeling/GlobalOpponentsModel.h"
 #include "Representations/Modeling/RobotPose.h"
 #include "Tools/BehaviorControl/KickSelection.h"
 #include "Tools/BehaviorControl/SectorWheel.h"
@@ -35,6 +36,7 @@ MODULE(WhiteFleetKickAtGoalEvaluationProvider,
   REQUIRES(FieldBall),
   REQUIRES(FrameInfo),
   REQUIRES(GameState),
+  REQUIRES(GlobalOpponentsModel),
   REQUIRES(KickInfo),
   REQUIRES(ObstacleModel),
   REQUIRES(RobotPose),

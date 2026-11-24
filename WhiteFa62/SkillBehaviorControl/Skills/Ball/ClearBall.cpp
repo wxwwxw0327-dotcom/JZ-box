@@ -9,6 +9,7 @@
 #include "WhiteFleetSkillBehaviorControl.h"
 #include "Platform/BHAssert.h"
 #include "Representations/Configuration/KickInfo.h"
+#include "WhiteFleetKickPower.h"
 
 option((WhiteFleetSkillBehaviorControl) ClearBall,
        vars((Angle)(0_deg) kickAngleInField,
@@ -34,8 +35,8 @@ option((WhiteFleetSkillBehaviorControl) ClearBall,
     {
       ASSERT(theClearTarget.isValid);
       GoToBallAndKick({.targetDirection = theClearTarget.kickAngle,
-                       .kickType = theClearTarget.kickType,
-                       .length = theClearTarget.kickLength});
+                       .kickType = SystemCall::getMode() == SystemCall::simulatedRobot ? KickInfo::rlKickStrong : theClearTarget.kickType,
+                       .length = SystemCall::getMode() == SystemCall::simulatedRobot ? WhiteFleetKickPower::fullLength() : theClearTarget.kickLength});
     }
   }
 
@@ -52,8 +53,8 @@ option((WhiteFleetSkillBehaviorControl) ClearBall,
         kickLength = theClearTarget.kickLength;
       }
       GoToBallAndKick({.targetDirection = kickAngleInField - theRobotPose.rotation,
-                       .kickType = kickType,
-                       .length = kickLength});
+                       .kickType = SystemCall::getMode() == SystemCall::simulatedRobot ? KickInfo::rlKickStrong : kickType,
+                       .length = SystemCall::getMode() == SystemCall::simulatedRobot ? WhiteFleetKickPower::fullLength() : kickLength});
     }
   }
 }

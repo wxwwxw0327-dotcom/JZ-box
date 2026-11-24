@@ -258,6 +258,8 @@ private:
   bool simulatedKickoffReleased = false;
   unsigned simulatedKickoffKickedAt = 0;
   float simulatedKickoffSide = 1.f;
+  Vector2f simulatedKickoffTarget = Vector2f::Zero();
+  bool simulatedKickoffTargetChosen = false, simulatedKickoffReceived = false;
   struct CloseBallSearch
   {
     unsigned seen = 0, consumedSeen = 0, started = 0;
@@ -276,6 +278,7 @@ private:
   struct OpponentRestartDefense
   {
     bool active = false, anchored = false, released = false, pass = false;
+    int passPlayer = 0;
     GameState::State state = GameState::beforeHalf;
     unsigned epoch = 0, observed = 0, updated = 0;
     Vector2f ball = Vector2f::Zero(), target = Vector2f::Zero();
